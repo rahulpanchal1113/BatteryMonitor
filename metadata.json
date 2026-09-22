@@ -1,0 +1,6 @@
+{
+  "name": "Battery Monitor",
+  "description": "Monitors charging and discharging performance, battery health, temperature trends, and charging speed insights with historical charts and home screen widget.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

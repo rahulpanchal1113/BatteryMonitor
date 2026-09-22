@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">Battery Monitor</string>
+    <string name="tab_dashboard">Monitor</string>
+    <string name="tab_daily">History</string>
+    <string name="tab_insights">Insights</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="status_charging">Charging</string>
+    <string name="status_discharging">Discharging</string>
+    <string name="status_full">Charged Full</string>
+    <string name="status_not_charging">Not Charging</string>
+
+    <string name="source_ac">AC Adapter</string>
+    <string name="source_usb">USB Port</string>
+    <string name="source_wireless">Wireless</string>
+    <string name="source_battery">Battery</string>
+
+    <string name="metric_temperature">Temperature</string>
+    <string name="metric_voltage">Voltage</string>
+    <string name="metric_health">Health</string>
+    <string name="metric_technology">Technology</string>
+    <string name="metric_power_source">Power Source</string>
+    <string name="metric_charging_speed">Speed</string>
+
+    <string name="insight_fastest_bracket_title">Peak Charge Speed</string>
+    <string name="insight_dropoff_title">Tapering Point</string>
+    <string name="insight_temperature_title">Thermal Impact</string>
+
+    <string name="widget_battery_title">Battery Status</string>
+    <string name="widget_updated_now">Updated now</string>
+    <string name="widget_tap_to_open">Tap to open app</string>
+
+    <string name="notification_channel_name">Battery Recording</string>
+    <string name="notification_channel_desc">Monitors charging speed and battery events</string>
+    <string name="notification_charging_active">Recording charging performance…</string>
+
+    <string name="notification_alerts_channel_name">Charging Hardware Alerts</string>
+    <string name="notification_alerts_channel_desc">Alerts when frequent disconnections or cable faults are detected</string>
+    <string name="alert_cable_issue_title">Unstable Charging Connection</string>
+    <string name="alert_cable_issue_desc">Stationary device disconnected repeatedly. Check your cable, port, or adapter.</string>
+
+    <string name="drive_export_title">Google Drive / File Backup</string>
+    <string name="drive_export_desc">Export your battery history as a JSON file to Google Drive or local storage</string>
+    <string name="drive_export_btn">Export Backup</string>
+    <string name="drive_import_btn">Import Backup</string>
+</resources>
