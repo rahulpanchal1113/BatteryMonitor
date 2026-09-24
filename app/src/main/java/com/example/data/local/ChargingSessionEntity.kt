@@ -30,7 +30,7 @@ data class ChargingSessionEntity(
     val isDisplayable: Boolean
         get() {
             if (!isCompleted) return true
-            val percentGained = kotlin.math.abs(endLevel - startLevel)
-            return durationSeconds >= 25L || percentGained >= 1 || plugType.contains("USB", ignoreCase = true) || plugType.contains("Car", ignoreCase = true)
+            val percentGained = kotlin.math.max(0, endLevel - startLevel)
+            return durationSeconds >= 60L || percentGained >= 1
         }
 }

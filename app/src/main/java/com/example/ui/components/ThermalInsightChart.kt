@@ -16,7 +16,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ChargingInsightSummary
 import java.util.Locale
+import kotlin.math.max
 
 @Composable
 fun ThermalInsightChart(
@@ -55,6 +58,8 @@ fun ThermalInsightChart(
         else -> null
     }
 
+    val isOverheatedAbove45 = (avgTempC ?: 0f) >= 45.0f || brackets.any { it.avgTemperature >= 45.0f }
+
     val displayAvg = if (avgTempC != null) {
         if (useFahrenheit) {
             String.format(Locale.US, "%.1f°F", (avgTempC * 9f / 5f) + 32f)
@@ -66,6 +71,7 @@ fun ThermalInsightChart(
     }
 
     val headerColor = when {
+        isOverheatedAbove45 -> Color(0xFFDC2626)
         avgTempC == null -> MaterialTheme.colorScheme.primary
         avgTempC >= 38f -> Color(0xFFEF4444)
         avgTempC >= 35f -> Color(0xFFF97316)
@@ -78,7 +84,7 @@ fun ThermalInsightChart(
             .testTag("thermal_insight_card"),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            containerColor = if (isOverheatedAbove45) Color(0xFFFEF2F2) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         )
     ) {
         Column(
@@ -105,7 +111,7 @@ fun ThermalInsightChart(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Thermostat,
+                            imageVector = if (isOverheatedAbove45) Icons.Default.LocalFireDepartment else Icons.Default.Thermostat,
                             contentDescription = "Thermal Curve",
                             tint = headerColor,
                             modifier = Modifier.size(20.dp)
@@ -120,9 +126,12 @@ fun ThermalInsightChart(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Continuous cell temperature curve",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = if (isOverheatedAbove45) "CRITICAL OVERHEAT (>45°C) DETECTED" else "Continuous cell temperature curve",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = if (isOverheatedAbove45) FontWeight.Bold else FontWeight.Normal
+                            ),
+                            color = if (isOverheatedAbove45) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -138,7 +147,7 @@ fun ThermalInsightChart(
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = "Avg $displayAvg",
+                        text = if (isOverheatedAbove45) "OVERHEAT $displayAvg" else "Avg $displayAvg",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp
@@ -149,22 +158,49 @@ fun ThermalInsightChart(
                 }
             }
 
+            if (isOverheatedAbove45) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFFEE2E2))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🔥", fontSize = 14.sp)
+                        Text(
+                            text = "OVERHEAT DETECTED: Stage temperature exceeded 45°C limit. Avoid heavy usage during fast charging.",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = Color(0xFF991B1B)
+                            )
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Modern Smooth Bezier Curve Canvas with Ambient Glow Fill
             val minTemp = 24f
-            val maxTemp = 42f
+            val maxBracketTemp = brackets.map { it.avgTemperature }.maxOrNull() ?: 36f
+            val maxTemp = max(48f, maxBracketTemp + 2f)
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(110.dp)
+                    .height(115.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Canvas(
-                    modifier = Modifier.fillMaxWidth().height(86.dp)
+                    modifier = Modifier.fillMaxWidth().height(91.dp)
                 ) {
                     val w = size.width
                     val h = size.height
@@ -179,6 +215,16 @@ fun ThermalInsightChart(
                         end = Offset(w, normSafeY),
                         strokeWidth = 1.dp.toPx(),
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                    )
+
+                    // Draw prominent 45°C OVERHEAT threshold reference line
+                    val normOverheatY = h - (((45f - minTemp) / (maxTemp - minTemp)).coerceIn(0.04f, 0.96f) * h)
+                    drawLine(
+                        color = Color(0xFFDC2626).copy(alpha = 0.75f),
+                        start = Offset(0f, normOverheatY),
+                        end = Offset(w, normOverheatY),
+                        strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
                     )
 
                     val stepX = w / (count - 1)
@@ -217,7 +263,7 @@ fun ThermalInsightChart(
                         path = fillPath,
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFFF97316).copy(alpha = 0.25f),
+                                if (isOverheatedAbove45) Color(0xFFDC2626).copy(alpha = 0.35f) else Color(0xFFF97316).copy(alpha = 0.25f),
                                 Color(0xFFF97316).copy(alpha = 0.02f)
                             ),
                             startY = 0f,
@@ -232,7 +278,7 @@ fun ThermalInsightChart(
                             colors = listOf(
                                 Color(0xFF10B981), // Emerald at start
                                 Color(0xFFF59E0B), // Amber mid
-                                Color(0xFFF97316)  // Coral end
+                                if (isOverheatedAbove45) Color(0xFFDC2626) else Color(0xFFF97316)  // Crimson red if overheated
                             )
                         ),
                         style = Stroke(
@@ -245,12 +291,23 @@ fun ThermalInsightChart(
                     points.forEachIndexed { idx, pt ->
                         val hasData = brackets.getOrNull(idx)?.let { it.avgTemperature > 0f && it.sampleCount > 0 } ?: false
                         val tempVal = brackets.getOrNull(idx)?.avgTemperature ?: baselineTemp
-                        val nodeColor = if (!hasData) Color.Gray.copy(alpha = 0.6f) else if (tempVal >= 38f) Color(0xFFEF4444) else if (tempVal >= 35f) Color(0xFFF97316) else Color(0xFF10B981)
+                        val isNodeOverheat = tempVal >= 45f
+                        val nodeColor = if (!hasData) {
+                            Color.Gray.copy(alpha = 0.6f)
+                        } else if (isNodeOverheat) {
+                            Color(0xFFDC2626)
+                        } else if (tempVal >= 38f) {
+                            Color(0xFFEF4444)
+                        } else if (tempVal >= 35f) {
+                            Color(0xFFF97316)
+                        } else {
+                            Color(0xFF10B981)
+                        }
 
                         // Outer soft aura
                         drawCircle(
-                            color = nodeColor.copy(alpha = 0.22f),
-                            radius = 6.dp.toPx(),
+                            color = if (isNodeOverheat) Color(0xFFDC2626).copy(alpha = 0.45f) else nodeColor.copy(alpha = 0.22f),
+                            radius = if (isNodeOverheat) 8.5.dp.toPx() else 6.dp.toPx(),
                             center = pt
                         )
                         // Inner solid node
@@ -270,13 +327,14 @@ fun ThermalInsightChart(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Modern Bracket Pills with sleek styling
+            // Modern Bracket Pills with sleek styling & Overheat labels
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 brackets.forEach { bracket ->
                     val hasData = bracket.avgTemperature > 0f && bracket.sampleCount > 0
+                    val isBracketOverheat = bracket.avgTemperature >= 45.0f
                     val tempStr = if (!hasData) {
                         "--"
                     } else if (useFahrenheit) {
@@ -287,6 +345,8 @@ fun ThermalInsightChart(
 
                     val pillColor = if (!hasData) {
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    } else if (isBracketOverheat) {
+                        Color(0xFFDC2626)
                     } else if (bracket.avgTemperature >= 38f) {
                         Color(0xFFEF4444)
                     } else if (bracket.avgTemperature >= 35f) {
@@ -299,6 +359,25 @@ fun ThermalInsightChart(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(horizontal = 2.dp)
                     ) {
+                        if (isBracketOverheat) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFDC2626))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "OVERHEAT",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 7.5.sp
+                                    ),
+                                    color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                        }
+
                         Text(
                             text = tempStr,
                             style = MaterialTheme.typography.labelSmall.copy(

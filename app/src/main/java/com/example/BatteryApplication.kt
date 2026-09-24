@@ -46,10 +46,16 @@ class BatteryApplication : Application() {
 
                     if (percent != lastObservedPercent) {
                         lastObservedPercent = percent
+                        repository.updateLiveStatus()
+                        if (isCharging) {
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                repository.logBatterySample()
+                            }
+                        }
                         BatteryWidgetProvider.updateAllWidgets(context)
                     }
 
-                    // Detect charging transitions (e.g. connecting to car / Android Auto / USB dock)
+                    // Detect charging transitions
                     val prevCharging = lastObservedCharging
                     lastObservedCharging = isCharging
 
@@ -65,10 +71,7 @@ class BatteryApplication : Application() {
                     }
                 }
 
-                Intent.ACTION_POWER_CONNECTED,
-                "android.app.action.ENTER_CAR_MODE",
-                "android.hardware.usb.action.USB_ACCESSORY_ATTACHED",
-                "android.hardware.usb.action.USB_DEVICE_ATTACHED" -> {
+                Intent.ACTION_POWER_CONNECTED -> {
                     lastObservedCharging = true
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                         repository.onPowerConnected()
@@ -76,10 +79,7 @@ class BatteryApplication : Application() {
                     }
                 }
 
-                Intent.ACTION_POWER_DISCONNECTED,
-                "android.app.action.EXIT_CAR_MODE",
-                "android.hardware.usb.action.USB_ACCESSORY_DETACHED",
-                "android.hardware.usb.action.USB_DEVICE_DETACHED" -> {
+                Intent.ACTION_POWER_DISCONNECTED -> {
                     lastObservedCharging = false
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                         repository.onPowerDisconnected()
@@ -95,18 +95,22 @@ class BatteryApplication : Application() {
         instance = this
         createNotificationChannel()
 
+        // Initialize state directly from system status on launch
+        val initialStatus = repository.queryCurrentBatteryStatus()
+        lastObservedCharging = initialStatus.isCharging
+        lastObservedPercent = initialStatus.level
+        if (initialStatus.isCharging) {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                repository.onPowerConnected()
+                BatteryWidgetProvider.updateAllWidgets(this@BatteryApplication)
+            }
+        }
+
         // Register dynamic battery listener so home screen widget updates in real time
-        // and Android Auto / Car connections are reliably captured even in background
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)
-            addAction("android.app.action.ENTER_CAR_MODE")
-            addAction("android.app.action.EXIT_CAR_MODE")
-            addAction("android.hardware.usb.action.USB_ACCESSORY_ATTACHED")
-            addAction("android.hardware.usb.action.USB_ACCESSORY_DETACHED")
-            addAction("android.hardware.usb.action.USB_DEVICE_ATTACHED")
-            addAction("android.hardware.usb.action.USB_DEVICE_DETACHED")
         }
         registerReceiver(dynamicBatteryReceiver, filter)
     }

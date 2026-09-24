@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -39,6 +41,10 @@ class BatteryRepository(
 ) {
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    private val powerLock = Mutex()
+    private var lastPowerConnectedTime: Long = 0L
+    private var lastPowerDisconnectedTime: Long = 0L
 
     val steadinessDetector = DeviceSteadinessDetector(context)
     val stabilityAnalyzer = ConnectionStabilityAnalyzer(context, steadinessDetector)
@@ -58,7 +64,9 @@ class BatteryRepository(
         _liveBatteryStatus
     ) { list, liveStatus ->
         var activeEncountered = false
-        list.filter { it.isDisplayable }.map { session ->
+        list.filter { it.isDisplayable }.map { rawSession ->
+            val safeEndLevel = max(rawSession.startLevel, rawSession.endLevel)
+            val session = if (safeEndLevel != rawSession.endLevel) rawSession.copy(endLevel = safeEndLevel) else rawSession
             if (!session.isCompleted) {
                 if (!liveStatus.isCharging) {
                     // Not currently charging: force to completed so phantom active states never display
@@ -90,6 +98,7 @@ class BatteryRepository(
             try {
                 dao.deletePhantomFallbackSessions()
                 dao.fixBatteryPlugTypeSessions()
+                dao.fixNegativeEndLevelSessions()
                 val currentStatus = queryCurrentBatteryStatus()
                 if (!currentStatus.isCharging) {
                     dao.closeAllActiveSessions(System.currentTimeMillis())
@@ -104,7 +113,9 @@ class BatteryRepository(
             _liveBatteryStatus
         ) { list, liveStatus ->
             var activeEncountered = false
-            list.filter { it.isDisplayable }.map { session ->
+            list.filter { it.isDisplayable }.map { rawSession ->
+                val safeEndLevel = max(rawSession.startLevel, rawSession.endLevel)
+                val session = if (safeEndLevel != rawSession.endLevel) rawSession.copy(endLevel = safeEndLevel) else rawSession
                 if (!session.isCompleted) {
                     if (!liveStatus.isCharging) {
                         session.copy(
@@ -461,152 +472,182 @@ class BatteryRepository(
     }
 
     suspend fun onPowerConnected() = withContext(Dispatchers.IO) {
-        val status = queryCurrentBatteryStatus()
-        _liveBatteryStatus.value = status
-
-        val now = System.currentTimeMillis()
-        val todayKey = dateFormat.format(Date(now))
-
-        val effectivePlugType = when {
-            status.plugType.isNotBlank() && !status.plugType.equals("Battery", ignoreCase = true) -> status.plugType
-            else -> "AC Adapter"
-        }
-
-        // Check if there is already an active session
-        val active = dao.getActiveSession()
-        val sessionId = if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) {
-            // Close any existing uncompleted sessions to guarantee NO duplicate active states
-            dao.closeAllActiveSessions(now)
-            val newSession = ChargingSessionEntity(
-                startTime = now,
-                startLevel = status.level,
-                endLevel = status.level,
-                plugType = effectivePlugType,
-                startTemp = status.tempCelsius,
-                maxTemp = status.tempCelsius,
-                avgTemp = status.tempCelsius,
-                durationSeconds = 0,
-                isCompleted = false,
-                dateKey = todayKey
-            )
-            dao.insertSession(newSession)
-        } else {
-            // If previous active session had empty or "Battery" plugType, update it with the detected plugType
-            if (active.plugType.equals("Battery", ignoreCase = true) || active.plugType.isBlank()) {
-                dao.updateSession(active.copy(plugType = effectivePlugType))
+        powerLock.withLock {
+            val now = System.currentTimeMillis()
+            // Debounce rapid duplicate connected events within 2.5 seconds
+            if (now - lastPowerConnectedTime < 2500L) {
+                val status = queryCurrentBatteryStatus()
+                _liveBatteryStatus.value = status
+                BatteryWidgetProvider.updateAllWidgets(context)
+                return@withLock
             }
-            active.id
+            lastPowerConnectedTime = now
+
+            val status = queryCurrentBatteryStatus()
+            _liveBatteryStatus.value = status
+
+            val todayKey = dateFormat.format(Date(now))
+
+            val effectivePlugType = when {
+                status.plugType.isNotBlank() && !status.plugType.equals("Battery", ignoreCase = true) -> status.plugType
+                else -> "AC Adapter"
+            }
+
+            // Check if there is already an active session
+            val active = dao.getActiveSession()
+            val sessionId: Long
+            if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) {
+                // Close any existing stale uncompleted sessions to guarantee NO duplicate active states
+                dao.closeAllActiveSessions(now)
+                val newSession = ChargingSessionEntity(
+                    startTime = now,
+                    startLevel = status.level,
+                    endLevel = status.level,
+                    plugType = effectivePlugType,
+                    startTemp = status.tempCelsius,
+                    maxTemp = status.tempCelsius,
+                    avgTemp = status.tempCelsius,
+                    durationSeconds = 0,
+                    isCompleted = false,
+                    dateKey = todayKey
+                )
+                sessionId = dao.insertSession(newSession)
+
+                // Record PLUGGED_IN event only for genuine new sessions
+                dao.insertEvent(
+                    BatteryEventEntity(
+                        timestamp = now,
+                        eventType = "PLUGGED_IN",
+                        batteryLevel = status.level,
+                        isCharging = true,
+                        plugType = effectivePlugType,
+                        temperatureCelsius = status.tempCelsius,
+                        voltageMilliVolts = status.voltageMilliVolts,
+                        batteryHealth = status.health,
+                        sessionId = sessionId
+                    )
+                )
+            } else {
+                // Active session already in progress: update plug type and ensure metrics are updated without creating duplicate event
+                val safeEnd = max(active.startLevel, status.level)
+                dao.updateSession(
+                    active.copy(
+                        plugType = effectivePlugType,
+                        endLevel = safeEnd,
+                        maxTemp = max(active.maxTemp, status.tempCelsius)
+                    )
+                )
+                sessionId = active.id
+            }
+
+            // Notify stability analyzer to evaluate steadiness and track connection frequency
+            stabilityAnalyzer.onPowerTransition(isConnected = true)
+
+            // Persist session details to SharedPreferences for instant, zero-latency widget updates
+            val activeStartLevel = if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) status.level else active.startLevel
+            val activeStartTime = if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) now else active.startTime
+            val prefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("is_plugged", true)
+                .putLong("plugged_since", activeStartTime)
+                .putInt("start_level", activeStartLevel)
+                .putString("plug_type", effectivePlugType)
+                .apply()
+
+            // Immediate widget update
+            BatteryWidgetProvider.updateAllWidgets(context)
         }
-
-        // Record event
-        dao.insertEvent(
-            BatteryEventEntity(
-                timestamp = now,
-                eventType = "PLUGGED_IN",
-                batteryLevel = status.level,
-                isCharging = true,
-                plugType = effectivePlugType,
-                temperatureCelsius = status.tempCelsius,
-                voltageMilliVolts = status.voltageMilliVolts,
-                batteryHealth = status.health,
-                sessionId = sessionId
-            )
-        )
-
-        // Notify stability analyzer to evaluate steadiness and track connection frequency
-        stabilityAnalyzer.onPowerTransition(isConnected = true)
-
-        // Persist session details to SharedPreferences for instant, zero-latency widget updates
-        val activeStartLevel = if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) status.level else active.startLevel
-        val activeStartTime = if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) now else active.startTime
-        val prefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean("is_plugged", true)
-            .putLong("plugged_since", activeStartTime)
-            .putInt("start_level", activeStartLevel)
-            .putString("plug_type", effectivePlugType)
-            .apply()
-
-        // Immediate widget update
-        BatteryWidgetProvider.updateAllWidgets(context)
     }
 
     suspend fun onPowerDisconnected() = withContext(Dispatchers.IO) {
-        val status = queryCurrentBatteryStatus()
-        _liveBatteryStatus.value = status
+        powerLock.withLock {
+            val now = System.currentTimeMillis()
+            // Debounce rapid duplicate disconnect events within 2.5 seconds
+            if (now - lastPowerDisconnectedTime < 2500L) {
+                val status = queryCurrentBatteryStatus()
+                _liveBatteryStatus.value = status
+                BatteryWidgetProvider.updateAllWidgets(context)
+                return@withLock
+            }
+            lastPowerDisconnectedTime = now
 
-        val now = System.currentTimeMillis()
-        val active = dao.getActiveSession()
-        val widgetPrefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
+            val status = queryCurrentBatteryStatus()
+            _liveBatteryStatus.value = status
 
-        if (active != null) {
-            val durationSeconds = max(1L, (now - active.startTime) / 1000L)
-            widgetPrefs.edit()
-                .putBoolean("is_plugged", false)
-                .putLong("last_duration_seconds", durationSeconds)
-                .putInt("last_start_level", active.startLevel)
-                .putInt("last_end_level", status.level)
-                .putLong("last_end_time", now)
-                .apply()
-            val deltaLevel = max(0, status.level - active.startLevel)
-            val durationHours = durationSeconds.toFloat() / 3600f
-            val speed = if (durationHours > 0.05f) (deltaLevel / durationHours) else 0f
+            val active = dao.getActiveSession()
+            val widgetPrefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
 
-            val completed = active.copy(
-                endTime = now,
-                endLevel = status.level,
-                maxTemp = max(active.maxTemp, status.tempCelsius),
-                avgTemp = (active.avgTemp + status.tempCelsius) / 2f,
-                durationSeconds = durationSeconds,
-                peakSpeedPercentPerHour = speed,
-                isCompleted = true
-            )
-            dao.updateSession(completed)
-            // Guarantee all uncompleted active sessions in database are cleanly closed
-            dao.closeAllActiveSessions(now)
+            if (active != null) {
+                val durationSeconds = max(1L, (now - active.startTime) / 1000L)
+                val safeEndLevel = max(active.startLevel, status.level)
+                val deltaLevel = max(0, safeEndLevel - active.startLevel)
+                val durationHours = durationSeconds.toFloat() / 3600f
+                val speed = if (durationHours > 0.05f) (deltaLevel.toFloat() / durationHours) else 0f
 
-            if (!completed.isDisplayable) {
-                stabilityAnalyzer.incrementFilteredJitter()
+                widgetPrefs.edit()
+                    .putBoolean("is_plugged", false)
+                    .putLong("last_duration_seconds", durationSeconds)
+                    .putInt("last_start_level", active.startLevel)
+                    .putInt("last_end_level", safeEndLevel)
+                    .putLong("last_end_time", now)
+                    .apply()
+
+                val completed = active.copy(
+                    endTime = now,
+                    endLevel = safeEndLevel,
+                    maxTemp = max(active.maxTemp, status.tempCelsius),
+                    avgTemp = (active.avgTemp + status.tempCelsius) / 2f,
+                    durationSeconds = durationSeconds,
+                    peakSpeedPercentPerHour = speed,
+                    isCompleted = true
+                )
+                dao.updateSession(completed)
+                // Guarantee all uncompleted active sessions in database are cleanly closed
+                dao.closeAllActiveSessions(now)
+
+                if (!completed.isDisplayable) {
+                    stabilityAnalyzer.incrementFilteredJitter()
+                }
+
+                dao.insertEvent(
+                    BatteryEventEntity(
+                        timestamp = now,
+                        eventType = "UNPLUGGED",
+                        batteryLevel = safeEndLevel,
+                        isCharging = false,
+                        plugType = "Battery",
+                        temperatureCelsius = status.tempCelsius,
+                        voltageMilliVolts = status.voltageMilliVolts,
+                        batteryHealth = status.health,
+                        sessionId = active.id
+                    )
+                )
+            } else {
+                // Unplugged when no active session was tracking; record unplug event without creating fake 60s sessions
+                dao.insertEvent(
+                    BatteryEventEntity(
+                        timestamp = now,
+                        eventType = "UNPLUGGED",
+                        batteryLevel = status.level,
+                        isCharging = false,
+                        plugType = "Battery",
+                        temperatureCelsius = status.tempCelsius,
+                        voltageMilliVolts = status.voltageMilliVolts,
+                        batteryHealth = status.health,
+                        sessionId = null
+                    )
+                )
             }
 
-            dao.insertEvent(
-                BatteryEventEntity(
-                    timestamp = now,
-                    eventType = "UNPLUGGED",
-                    batteryLevel = status.level,
-                    isCharging = false,
-                    plugType = "Battery",
-                    temperatureCelsius = status.tempCelsius,
-                    voltageMilliVolts = status.voltageMilliVolts,
-                    batteryHealth = status.health,
-                    sessionId = active.id
-                )
-            )
-        } else {
-            // Unplugged when no active session was tracking; record unplug event without creating fake 60s sessions
-            dao.insertEvent(
-                BatteryEventEntity(
-                    timestamp = now,
-                    eventType = "UNPLUGGED",
-                    batteryLevel = status.level,
-                    isCharging = false,
-                    plugType = "Battery",
-                    temperatureCelsius = status.tempCelsius,
-                    voltageMilliVolts = status.voltageMilliVolts,
-                    batteryHealth = status.health,
-                    sessionId = null
-                )
-            )
+            // Guarantee all sessions in database are marked completed upon unplugging
+            dao.closeAllActiveSessions(now)
+
+            // Notify stability analyzer to evaluate steadiness and track connection frequency
+            stabilityAnalyzer.onPowerTransition(isConnected = false)
+
+            // Refresh all widgets immediately upon disconnect
+            BatteryWidgetProvider.updateAllWidgets(context)
         }
-
-        // Guarantee all sessions in database are marked completed upon unplugging
-        dao.closeAllActiveSessions(now)
-
-        // Notify stability analyzer to evaluate steadiness and track connection frequency
-        stabilityAnalyzer.onPowerTransition(isConnected = false)
-
-        // Refresh all widgets immediately upon disconnect
-        BatteryWidgetProvider.updateAllWidgets(context)
     }
 
     suspend fun logBatterySample() = withContext(Dispatchers.IO) {
@@ -623,10 +664,11 @@ class BatteryRepository(
             } else {
                 active.plugType
             }
+            val safeEndLevel = max(active.startLevel, status.level)
             // Update active session running metrics
             val updated = active.copy(
                 plugType = effectivePlugType,
-                endLevel = status.level,
+                endLevel = safeEndLevel,
                 maxTemp = max(active.maxTemp, status.tempCelsius),
                 avgTemp = (active.avgTemp * 0.8f) + (status.tempCelsius * 0.2f),
                 durationSeconds = (now - active.startTime) / 1000L
@@ -650,6 +692,9 @@ class BatteryRepository(
                 )
             )
         } else {
+            // Keep widget metrics fresh while discharging
+            BatteryWidgetProvider.updateAllWidgets(context)
+
             dao.insertEvent(
                 BatteryEventEntity(
                     timestamp = now,
@@ -693,8 +738,14 @@ class BatteryRepository(
     suspend fun getInsightsSummary(): ChargingInsightSummary = withContext(Dispatchers.IO) {
         val oneWeekAgo = System.currentTimeMillis() - (7 * 24 * 3600 * 1000L)
         val events = dao.getEventsSince(oneWeekAgo)
-        val sessions = dao.getCompletedSessionsList(50)
-        InsightsCalculator.calculateInsights(events, sessions)
+        val completedSessions = dao.getCompletedSessionsList(50)
+        val active = dao.getActiveSession()
+        val allSessions = if (active != null && active.endLevel > active.startLevel) {
+            listOf(active) + completedSessions
+        } else {
+            completedSessions
+        }
+        InsightsCalculator.calculateInsights(events, allSessions)
     }
 
     suspend fun clearAllData() = withContext(Dispatchers.IO) {

@@ -66,8 +66,9 @@ fun ChargingSessionCard(
         }
     }
 
-    val gainedPercent = session.endLevel - session.startLevel
-    val gainText = if (gainedPercent >= 0) "+$gainedPercent%" else "$gainedPercent%"
+    val safeEndLevel = max(session.startLevel, session.endLevel)
+    val gainedPercent = max(0, safeEndLevel - session.startLevel)
+    val gainText = "+$gainedPercent%"
     val gainColor = if (gainedPercent > 0) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurface
 
     val timeFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
@@ -224,7 +225,7 @@ fun ChargingSessionCard(
                         color = gainColor
                     )
                     Text(
-                        text = "${session.startLevel}% → ${session.endLevel}%",
+                        text = "${session.startLevel}% → $safeEndLevel%",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -36,6 +36,9 @@ data class ChargeBracketInsight(
             60 -> "Controller begins balancing"
             else -> "Trickle mode to prevent cell wear"
         }
+
+    val isOverheated: Boolean
+        get() = avgTemperature >= 45.0f
 }
 
 data class OverheatIncident(
@@ -45,15 +48,22 @@ data class OverheatIncident(
     val sessionPlugType: String,
     val wasThrottled: Boolean,
     val description: String
-)
+) {
+    val isOverheatAbove45: Boolean
+        get() = peakTempCelsius >= 45.0f
+}
 
 data class OverheatingSummary(
     val peakRecordedTempCelsius: Float = 0f,
     val totalOverheatIncidents: Int = 0,
+    val totalOverheatIncidentsAbove45: Int = 0,
     val lastIncidentTimestamp: Long? = null,
     val thermalSafetyStatus: String = "Normal (<37°C)",
     val recentIncidents: List<OverheatIncident> = emptyList()
-)
+) {
+    val hasCriticalOverheatAbove45: Boolean
+        get() = peakRecordedTempCelsius >= 45.0f
+}
 
 data class ChargingInsightSummary(
     val peakBracket: ChargeBracketInsight?,

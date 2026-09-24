@@ -18,27 +18,11 @@ class PowerConnectionReceiver : BroadcastReceiver() {
         val app = context.applicationContext as? BatteryApplication ?: return
 
         when (action) {
-            Intent.ACTION_POWER_CONNECTED,
-            "android.hardware.usb.action.USB_ACCESSORY_ATTACHED",
-            "android.hardware.usb.action.USB_DEVICE_ATTACHED",
-            "android.app.action.ENTER_CAR_MODE" -> {
+            Intent.ACTION_POWER_CONNECTED -> {
                 handleConnected(context, app)
             }
 
-            "android.hardware.usb.action.USB_STATE" -> {
-                val isUsbConnected = intent.getBooleanExtra("connected", false)
-                val status = app.repository.queryCurrentBatteryStatus()
-                if (isUsbConnected || status.isCharging) {
-                    handleConnected(context, app)
-                } else {
-                    handleDisconnected(context, app)
-                }
-            }
-
-            Intent.ACTION_POWER_DISCONNECTED,
-            "android.hardware.usb.action.USB_ACCESSORY_DETACHED",
-            "android.hardware.usb.action.USB_DEVICE_DETACHED",
-            "android.app.action.EXIT_CAR_MODE" -> {
+            Intent.ACTION_POWER_DISCONNECTED -> {
                 handleDisconnected(context, app)
             }
 

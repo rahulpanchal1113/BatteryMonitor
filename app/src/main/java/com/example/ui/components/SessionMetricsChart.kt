@@ -93,8 +93,9 @@ fun SessionMetricsChart(
             val startTemp = toDisplayTemp(session.startTemp)
             val endTemp = toDisplayTemp(if (session.maxTemp > 0f) session.maxTemp else session.startTemp)
 
+            val safeEnd = max(session.startLevel, session.endLevel)
             rawPoints.add(SessionChartDataPoint(startT, session.startLevel.toFloat(), startTemp))
-            rawPoints.add(SessionChartDataPoint(endT, session.endLevel.toFloat(), endTemp))
+            rawPoints.add(SessionChartDataPoint(endT, safeEnd.toFloat(), endTemp))
         }
 
         // If only 2 points and span is > 2 mins, generate smooth intermediate checkpoints

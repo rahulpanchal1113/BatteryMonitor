@@ -176,7 +176,8 @@ fun SessionItemRow(
     val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
     val startTimeStr = timeFormat.format(Date(session.startTime))
     val endTimeStr = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Active"
-    val deltaPercent = session.endLevel - session.startLevel
+    val safeEnd = kotlin.math.max(session.startLevel, session.endLevel)
+    val deltaPercent = kotlin.math.max(0, safeEnd - session.startLevel)
     val durationMinutes = session.durationSeconds / 60
 
     Row(
@@ -231,7 +232,7 @@ fun SessionItemRow(
                     )
                 )
                 Text(
-                    text = "${session.startLevel}% → ${session.endLevel}%",
+                    text = "${session.startLevel}% → $safeEnd%",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

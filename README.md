@@ -13,10 +13,10 @@ A modern, privacy-focused Android application for comprehensive battery health d
 - **Live Charging Power Flow**: Visual breakdown of total wall charger power supplied vs. net battery intake power and active device draw (in Watts and mA).
 - **Power Consumption & Standby**: Accurate discharge rate and standby draw tracking when running unplugged on battery power.
 - **Hardware Fault & Cable Diagnostics**: Real-time detection of unstable connections, intermittent contacts, and faulty cables or adapters.
-- **Recent Sessions**: Interactive history cards for charging sessions with one-tap deep dives.
+- **Recent Power Events**: Clean, focused feed showing the last 5 charging events with one-tap deep dive into detailed metrics and temperature curves.
 
 ### 2. 📈 Stage-by-Stage Charging Speed & Insights
-- **Charging Stage Progression**: Breakdown across percentage brackets (`0–20%`, `20–40%`, `40–60%`, `60–80%`, and `80–100%`).
+- **Full-Spectrum Multi-Stage Progression**: When charging across percentage boundaries (e.g., from 15% to 85%), every traversed stage (`0–20%`, `20–40%`, `40–60%`, `60–80%`, and `80–100%`) is captured, analyzed, and updated in the Insights dashboard.
 - **Dynamic Speed Ranking**: Color-coded spectrum ranging from the fastest stage (Emerald Green) to top-capacity trickle charging (Warm Orange).
 - **Dual Speed Metrics**: Switch seamlessly between **Minutes per Stage** and **Charge Rate (%/hr)**.
 - **Thermal Progression Curve**: Continuous temperature tracking throughout charging stages, excluding unrecorded ranges for clean, accurate trends.
@@ -26,6 +26,7 @@ A modern, privacy-focused Android application for comprehensive battery health d
 ### 3. 🗓️ Daily History & Session Details
 - **Date-Filtered Timeline**: Review all past charging events and completed charge cycles by day.
 - **Detailed Session Bottom Sheet**: Start/end battery level, net percentage gained, duration, average/peak temperatures, and wattage.
+- **Data Integrity & Clamping**: Strict monotonic charge verification guarantees non-negative gains across all history items and graphs.
 - **Daily Metrics Summary**: Aggregate stats for each day including temperature variance and total charging time.
 
 ### 4. ⚙️ Settings, Backup & Customization
@@ -33,8 +34,9 @@ A modern, privacy-focused Android application for comprehensive battery health d
 - **Local & Google Drive Backup**: Export and import full historical charging sessions and events via structured JSON.
 - **Battery Optimization Tips**: Best practices to maintain lithium-ion battery longevity and prevent premature capacity degradation.
 
-### 5. 📱 Home Screen Widget
-- Glanceable Android AppWidget displaying current battery percentage, status, and temperature right from your launcher.
+### 5. 📱 Home Screen Widget & Modern Icon
+- **Instant Live Widget**: Glanceable Android AppWidget displaying current battery percentage, live plug/unplug status, and session charge gain with zero latency.
+- **Modern Sleek Adaptive Icon**: High-contrast obsidian slate canvas with glowing neon emerald and cyan energy cell and precision electric bolt.
 
 ---
 

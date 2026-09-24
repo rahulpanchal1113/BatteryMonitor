@@ -673,19 +673,21 @@ fun OverheatingRecordCard(
 ) {
     val overheat = summary?.overheatingSummary ?: return
     val peak = overheat.peakRecordedTempCelsius
+    val isCriticalOverheat = peak >= 45.0f
+    val isHigh = peak >= 40.0f
+    val isElevated = peak >= 38.0f
+    val accentColor = when {
+        isCriticalOverheat -> Color(0xFFDC2626)
+        isHigh -> Color(0xFFEF4444)
+        isElevated -> Color(0xFFF97316)
+        else -> Color(0xFF10B981)
+    }
+
     val peakStr = if (peak > 0f) {
         if (useFahrenheit) String.format(Locale.US, "%.1f°F", (peak * 9f / 5f) + 32f)
         else String.format(Locale.US, "%.1f°C", peak)
     } else {
         if (useFahrenheit) "< 97°F" else "< 36°C"
-    }
-
-    val isHigh = peak >= 40.0f
-    val isElevated = peak >= 38.0f
-    val accentColor = when {
-        isHigh -> Color(0xFFEF4444)
-        isElevated -> Color(0xFFF97316)
-        else -> Color(0xFF10B981)
     }
 
     Card(
@@ -694,10 +696,37 @@ fun OverheatingRecordCard(
             .testTag("overheating_record_card"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isHigh) Color(0xFFFEF2F2) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            containerColor = if (isCriticalOverheat || isHigh) Color(0xFFFEF2F2) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Prominent banner if critical overheat above 45°C
+            if (isCriticalOverheat) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFDC2626))
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("🔥", fontSize = 14.sp)
+                        Text(
+                            text = "CRITICAL OVERHEAT (>45°C): Battery cell exceeded 45°C. Avoid fast charging while performing heavy tasks.",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color.White
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -725,7 +754,10 @@ fun OverheatingRecordCard(
                     )
                     Text(
                         text = overheat.thermalSafetyStatus,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = if (isCriticalOverheat) FontWeight.Bold else FontWeight.Normal
+                        ),
                         color = accentColor
                     )
                 }
@@ -762,17 +794,40 @@ fun OverheatingRecordCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = peakStr,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = accentColor
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = peakStr,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = accentColor
+                                )
+                                if (isCriticalOverheat) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFFDC2626))
+                                            .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                                    ) {
+                                        Text(
+                                            text = "OVERHEAT",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 7.sp
+                                            ),
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Highest seen",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = if (isCriticalOverheat) "Above 45°C limit" else "Highest seen",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.sp,
+                                color = if (isCriticalOverheat) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isCriticalOverheat) FontWeight.Bold else FontWeight.Normal
+                            )
                         )
                     }
                 }
@@ -800,14 +855,20 @@ fun OverheatingRecordCard(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (overheat.totalOverheatIncidents > 0) "${overheat.totalOverheatIncidents} times" else "0 times",
+                                text = if (isCriticalOverheat) {
+                                    ">45°C OVERHEAT"
+                                } else if (overheat.totalOverheatIncidents > 0) {
+                                    "${overheat.totalOverheatIncidents} times"
+                                } else {
+                                    "0 times"
+                                },
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (overheat.totalOverheatIncidents > 0) Color(0xFFEA580C) else Color(0xFF15803D)
+                                color = if (isCriticalOverheat) Color(0xFFDC2626) else if (overheat.totalOverheatIncidents > 0) Color(0xFFEA580C) else Color(0xFF15803D)
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (overheat.totalOverheatIncidents > 0) "Exceeded 40°C" else "Safe thermal limit",
+                            text = if (isCriticalOverheat) "Exceeded 45°C" else if (overheat.totalOverheatIncidents > 0) "Exceeded 38°C" else "Safe thermal limit",
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -837,14 +898,14 @@ fun OverheatingRecordCard(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isHigh) "Active" else "None",
+                                text = if (isCriticalOverheat || isHigh) "Active" else "None",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (isHigh) Color(0xFFDC2626) else Color(0xFF15803D)
+                                color = if (isCriticalOverheat || isHigh) Color(0xFFDC2626) else Color(0xFF15803D)
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isHigh) "Charging slowed" else "No speed limits",
+                            text = if (isCriticalOverheat) "Safety throttling" else if (isHigh) "Charging slowed" else "No speed limits",
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -859,6 +920,8 @@ fun OverheatingRecordCard(
                 overheat.recentIncidents.forEach { incident ->
                     val incTempStr = if (useFahrenheit) String.format(Locale.US, "%.1f°F", (incident.peakTempCelsius * 9f / 5f) + 32f)
                     else String.format(Locale.US, "%.1f°C", incident.peakTempCelsius)
+
+                    val isIncOverheat = incident.peakTempCelsius >= 45.0f
 
                     Row(
                         modifier = Modifier
@@ -880,17 +943,37 @@ fun OverheatingRecordCard(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        Text(
-                            text = incTempStr,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = if (incident.peakTempCelsius >= 40f) Color(0xFFDC2626) else Color(0xFFEA580C)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isIncOverheat) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFDC2626))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "OVERHEAT",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 7.sp
+                                        ),
+                                        color = Color.White
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = incTempStr,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (isIncOverheat) Color(0xFFDC2626) else if (incident.peakTempCelsius >= 40f) Color(0xFFEF4444) else Color(0xFFEA580C)
+                            )
+                        }
                     }
                 }
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "No overheating cycles detected. Your phone stays comfortably below 40°C (104°F) while charging, protecting long-term battery lifespan.",
+                    text = "No overheating cycles detected. Your phone stays comfortably below safe thermal limits while charging, protecting long-term battery lifespan.",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

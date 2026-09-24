@@ -64,8 +64,9 @@ fun ChargingSessionDetailSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val events by eventsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    val gainedPercent = session.endLevel - session.startLevel
-    val gainStr = if (gainedPercent >= 0) "+$gainedPercent%" else "$gainedPercent%"
+    val safeEndLevel = max(session.startLevel, session.endLevel)
+    val gainedPercent = max(0, safeEndLevel - session.startLevel)
+    val gainStr = "+$gainedPercent%"
 
     // Formatted date and time strings
     val fullDateFormat = remember { SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()) }
@@ -254,7 +255,7 @@ fun ChargingSessionDetailSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "${session.startLevel}% → ${session.endLevel}%",
+                                text = "${session.startLevel}% → $safeEndLevel%",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -267,7 +268,7 @@ fun ChargingSessionDetailSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "${session.endLevel}%",
+                                text = "$safeEndLevel%",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -277,7 +278,7 @@ fun ChargingSessionDetailSheet(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     LinearProgressIndicator(
-                        progress = { session.endLevel / 100f },
+                        progress = { safeEndLevel / 100f },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)

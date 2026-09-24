@@ -24,13 +24,13 @@
 
     <!-- Battery Terminal Cap -->
     <path
-        android:pathData="M48,29 L48,27.5 C48,26.4 48.9,25.5 50,25.5 L58,25.5 C59.1,25.5 60,26.4 60,27.5 L60,29 Z">
+        android:pathData="M48,27.5 L48,26 C48,25 48.9,24.2 50,24.2 L58,24.2 C59.1,24.2 60,25 60,26 L60,27.5 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="48"
-                android:startY="25.5"
+                android:startY="24.2"
                 android:endX="60"
-                android:endY="29"
+                android:endY="27.5"
                 android:type="linear">
                 <item android:color="#38BDF8" android:offset="0.0" />
                 <item android:color="#06B6D4" android:offset="1.0" />
@@ -40,18 +40,18 @@
 
     <!-- Battery Body Dark Glass Interior -->
     <path
-        android:pathData="M45,29 L63,29 C68,29 72,33 72,38 L72,70 C72,75 68,79 63,79 L45,79 C40,79 36,75 36,70 L36,38 C36,33 40,29 45,29 Z"
+        android:pathData="M45,28 L63,28 C68,28 72,32 72,37 L72,71 C72,76 68,80 63,80 L45,80 C40,80 36,76 36,71 L36,37 C36,32 40,28 45,28 Z"
         android:fillColor="#0B132B" />
 
     <!-- Battery Charge Fluid Level (70% fill with energetic green-cyan gradient) -->
     <path
-        android:pathData="M37.5,44 L70.5,44 L70.5,70 C70.5,74.5 67,77.5 63,77.5 L45,77.5 C41,77.5 37.5,74.5 37.5,70 Z">
+        android:pathData="M37.5,43 L70.5,43 L70.5,71 C70.5,75.5 67,78.5 63,78.5 L45,78.5 C41,78.5 37.5,75.5 37.5,71 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="37.5"
-                android:startY="44"
+                android:startY="43"
                 android:endX="70.5"
-                android:endY="78"
+                android:endY="79"
                 android:type="linear">
                 <item android:color="#22D3EE" android:offset="0.0" />
                 <item android:color="#10B981" android:offset="0.5" />
@@ -62,21 +62,21 @@
 
     <!-- Glowing Fluid Meniscus Line -->
     <path
-        android:pathData="M38,44 L70,44"
+        android:pathData="M38,43 L70,43"
         android:strokeColor="#A7F3D0"
         android:strokeWidth="1.5" />
 
     <!-- Battery Outer Frame / Chiseled Metallic Rim -->
     <path
-        android:pathData="M45,29 L63,29 C68,29 72,33 72,38 L72,70 C72,75 68,79 63,79 L45,79 C40,79 36,75 36,70 L36,38 C36,33 40,29 45,29 Z"
+        android:pathData="M45,28 L63,28 C68,28 72,32 72,37 L72,71 C72,76 68,80 63,80 L45,80 C40,80 36,76 36,71 L36,37 C36,32 40,28 45,28 Z"
         android:strokeWidth="2.8"
         android:strokeLineJoin="round">
         <aapt:attr name="android:strokeColor">
             <gradient
                 android:startX="36"
-                android:startY="29"
+                android:startY="28"
                 android:endX="72"
-                android:endY="79"
+                android:endY="80"
                 android:type="linear">
                 <item android:color="#67E8F9" android:offset="0.0" />
                 <item android:color="#34D399" android:offset="0.5" />
@@ -87,14 +87,14 @@
 
     <!-- Sleek Glass Specular Reflection Highlight (top-left) -->
     <path
-        android:pathData="M39,47 L39,37 C39,33.5 41.5,31.5 45,31.5 L53,31.5"
+        android:pathData="M39,46 L39,36 C39,32.5 41.5,30.5 45,30.5 L53,30.5"
         android:strokeColor="#60FFFFFF"
         android:strokeWidth="1.6"
         android:strokeLineCap="round" />
 
     <!-- Technical Level Indicator Ticks on Right -->
     <path
-        android:pathData="M66,37 L69,37"
+        android:pathData="M66,36 L69,36"
         android:strokeColor="#30FFFFFF"
         android:strokeWidth="1.2"
         android:strokeLineCap="round" />
@@ -104,14 +104,14 @@
         android:strokeWidth="1.2"
         android:strokeLineCap="round" />
     <path
-        android:pathData="M66,70 L69,70"
+        android:pathData="M66,71 L69,71"
         android:strokeColor="#40FFFFFF"
         android:strokeWidth="1.2"
         android:strokeLineCap="round" />
 
     <!-- High-Contrast Bolt Drop Shadow for Depth -->
     <path
-        android:pathData="M56.5,35 L43.5,52.5 L52.5,52.5 L49.5,71.5 L64.5,49.5 L55.5,49.5 Z"
+        android:pathData="M56.5,34 L43.5,52 L52.5,52 L49.5,72 L64.5,49 L55.5,49 Z"
         android:fillColor="#091823"
         android:strokeColor="#091823"
         android:strokeWidth="2.4"
@@ -119,16 +119,16 @@
 
     <!-- Modern Sharp Lightning Bolt Core -->
     <path
-        android:pathData="M56,35 L44,52 L52.5,52 L49.5,71 L64,49 L55.5,49 Z"
+        android:pathData="M56,34 L44,51.5 L52.5,51.5 L49.5,71.5 L64,48.5 L55.5,48.5 Z"
         android:strokeColor="#FEF08A"
         android:strokeWidth="0.8"
         android:strokeLineJoin="round">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="50"
-                android:startY="35"
+                android:startY="34"
                 android:endX="56"
-                android:endY="71"
+                android:endY="71.5"
                 android:type="linear">
                 <item android:color="#FFFBEB" android:offset="0.0" />
                 <item android:color="#FDE047" android:offset="0.3" />
@@ -138,4 +138,3 @@
         </aapt:attr>
     </path>
 </vector>
-

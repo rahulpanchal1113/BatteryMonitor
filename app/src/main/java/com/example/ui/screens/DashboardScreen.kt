@@ -290,7 +290,7 @@ fun DashboardScreen(
                 }
             }
         } else {
-            items(deduplicatedSessions.take(8), key = { it.id }) { session ->
+            items(deduplicatedSessions.take(5), key = { it.id }) { session ->
                 ChargingSessionCard(
                     session = session,
                     useFahrenheit = useFahrenheit,
