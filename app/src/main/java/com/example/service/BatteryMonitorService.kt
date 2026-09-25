@@ -171,7 +171,7 @@ class BatteryMonitorService : Service() {
                 } else {
                     app.repository.onPowerDisconnected()
                 }
-            } else if (currentStatus.isCharging && currentStatus.level != lastRecordedLevel) {
+            } else if (currentStatus.level != lastRecordedLevel) {
                 lastRecordedLevel = currentStatus.level
                 app.repository.logBatterySample()
             }

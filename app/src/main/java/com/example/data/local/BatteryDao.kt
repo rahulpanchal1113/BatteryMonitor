@@ -26,6 +26,9 @@ interface BatteryDao {
     @Query("SELECT * FROM battery_events WHERE isCharging = 1 AND timestamp >= :sinceTimestamp ORDER BY timestamp ASC")
     suspend fun getChargingSamplesSince(sinceTimestamp: Long): List<BatteryEventEntity>
 
+    @Query("SELECT * FROM battery_events WHERE eventType = 'UNPLUGGED' ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestUnpluggedEvent(): BatteryEventEntity?
+
     // --- Sessions ---
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: ChargingSessionEntity): Long
@@ -66,9 +69,40 @@ interface BatteryDao {
     @Query("UPDATE charging_sessions SET endLevel = startLevel WHERE endLevel < startLevel")
     suspend fun fixNegativeEndLevelSessions()
 
+    @Query("SELECT * FROM battery_events WHERE timestamp >= :startTime AND (:endTime IS NULL OR timestamp <= :endTime) ORDER BY timestamp ASC")
+    fun getEventsInTimeRange(startTime: Long, endTime: Long?): Flow<List<BatteryEventEntity>>
+
+    // --- Discharging Sessions ---
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDischargeSession(session: DischargingSessionEntity): Long
+
+    @Update
+    suspend fun updateDischargeSession(session: DischargingSessionEntity)
+
+    @Query("SELECT * FROM discharging_sessions WHERE isCompleted = 0 ORDER BY startTime DESC LIMIT 1")
+    suspend fun getActiveDischargeSession(): DischargingSessionEntity?
+
+    @Query("UPDATE discharging_sessions SET isCompleted = 1, endTime = :now WHERE isCompleted = 0")
+    suspend fun closeAllActiveDischargeSessions(now: Long)
+
+    @Query("SELECT * FROM discharging_sessions ORDER BY startTime DESC")
+    fun getAllDischargeSessions(): Flow<List<DischargingSessionEntity>>
+
+    @Query("SELECT * FROM discharging_sessions WHERE dateKey = :dateKey ORDER BY startTime DESC")
+    fun getDischargeSessionsForDate(dateKey: String): Flow<List<DischargingSessionEntity>>
+
+    @Query("SELECT DISTINCT dateKey FROM discharging_sessions ORDER BY dateKey DESC")
+    fun getDischargeAvailableDates(): Flow<List<String>>
+
+    @Query("SELECT * FROM discharging_sessions ORDER BY startTime DESC LIMIT 1")
+    suspend fun getLatestDischargeSession(): DischargingSessionEntity?
+
     @Query("DELETE FROM battery_events")
     suspend fun clearEvents()
 
     @Query("DELETE FROM charging_sessions")
     suspend fun clearSessions()
+
+    @Query("DELETE FROM discharging_sessions")
+    suspend fun clearDischargeSessions()
 }

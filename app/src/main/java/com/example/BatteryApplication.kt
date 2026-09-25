@@ -57,20 +57,14 @@ class BatteryApplication : Application() {
                     if (percent != lastObservedPercent) {
                         lastObservedPercent = percent
                         repository.updateLiveStatus()
-                        if (isCharging) {
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    repository.logBatterySample()
-                                } finally {
-                                    try {
-                                        if (wakeLock?.isHeld == true) wakeLock.release()
-                                    } catch (_: Exception) {}
-                                }
-                            }
-                        } else {
+                        CoroutineScope(Dispatchers.IO).launch {
                             try {
-                                if (wakeLock?.isHeld == true) wakeLock.release()
-                            } catch (_: Exception) {}
+                                repository.logBatterySample()
+                            } finally {
+                                try {
+                                    if (wakeLock?.isHeld == true) wakeLock.release()
+                                } catch (_: Exception) {}
+                            }
                         }
                         BatteryWidgetProvider.updateAllWidgets(context)
                     }

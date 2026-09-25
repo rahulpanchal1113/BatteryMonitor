@@ -7,12 +7,16 @@ import android.os.BatteryManager
 import com.example.data.local.BatteryDao
 import com.example.data.local.BatteryEventEntity
 import com.example.data.local.ChargingSessionEntity
+import com.example.data.local.DischargingSessionEntity
 import com.example.data.diagnostics.ConnectionStabilityAnalyzer
 import com.example.data.model.AppBackgroundBatteryUsage
+import com.example.data.model.AppDischargeConsumption
 import com.example.data.model.BatteryStatus
 import com.example.data.model.ChargingInsightSummary
 import com.example.data.model.ConnectionDiagnosticIssue
 import com.example.data.model.DailyBatteryStats
+import com.example.data.model.DailyDischargeStats
+import com.example.data.util.AppUsageTracker
 import com.example.data.util.InsightsCalculator
 import com.example.sensor.DeviceSteadinessDetector
 import com.example.widget.BatteryWidgetProvider
@@ -91,6 +95,8 @@ class BatteryRepository(
     }
     val recentEvents: Flow<List<BatteryEventEntity>> = dao.getRecentEvents(100)
     val availableDates: Flow<List<String>> = dao.getAvailableDates()
+    val allDischargeSessions: Flow<List<DischargingSessionEntity>> = dao.getAllDischargeSessions()
+    val dischargeAvailableDates: Flow<List<String>> = dao.getDischargeAvailableDates()
 
     init {
         // Clean up legacy sessions and guarantee no stale active sessions exist
@@ -105,8 +111,87 @@ class BatteryRepository(
                 if (active != null && !currentStatus.isCharging && (now - active.startTime) > 10 * 60 * 1000L) {
                     dao.closeAllActiveSessions(now)
                 }
+
+                // If currently discharging on battery, ensure an active discharge session is tracking
+                if (!currentStatus.isCharging) {
+                    val activeDischarge = dao.getActiveDischargeSession()
+                    if (activeDischarge == null || (now - activeDischarge.startTime) > 24 * 3600 * 1000L) {
+                        dao.closeAllActiveDischargeSessions(now)
+                        val lastUnplug = dao.getLatestUnpluggedEvent()
+                        val hasRecentUnplug = lastUnplug != null &&
+                                (now - lastUnplug.timestamp) < 24 * 3600 * 1000L &&
+                                lastUnplug.batteryLevel >= currentStatus.level
+
+                        val effectiveStartTime = if (hasRecentUnplug) lastUnplug!!.timestamp else now
+                        val effectiveStartLevel = if (hasRecentUnplug) lastUnplug!!.batteryLevel else currentStatus.level
+                        val durSecs = max(0L, (now - effectiveStartTime) / 1000L)
+                        val drain = max(0, effectiveStartLevel - currentStatus.level)
+                        val speed = if (durSecs > 180L) (drain.toFloat() / (durSecs / 3600f)) else 0f
+
+                        val todayKey = formatDateKey(effectiveStartTime)
+                        dao.insertDischargeSession(
+                            DischargingSessionEntity(
+                                startTime = effectiveStartTime,
+                                startLevel = effectiveStartLevel,
+                                endLevel = currentStatus.level,
+                                startTemp = if (hasRecentUnplug) lastUnplug!!.temperatureCelsius else currentStatus.tempCelsius,
+                                maxTemp = currentStatus.tempCelsius,
+                                avgTemp = currentStatus.tempCelsius,
+                                durationSeconds = durSecs,
+                                drainSpeedPercentPerHour = speed,
+                                isCompleted = false,
+                                dateKey = todayKey
+                            )
+                        )
+                    }
+                }
             } catch (_: Exception) {}
         }
+    }
+
+    fun getDischargeSessionsForDate(dateKey: String): Flow<List<DischargingSessionEntity>> {
+        return combine(
+            dao.getDischargeSessionsForDate(dateKey),
+            _liveBatteryStatus
+        ) { list, liveStatus ->
+            var activeEncountered = false
+            list.filter { it.isDisplayable }.map { rawSession ->
+                if (!rawSession.isCompleted) {
+                    if (liveStatus.isCharging) {
+                        rawSession.copy(
+                            isCompleted = true,
+                            endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
+                        )
+                    } else if (!activeEncountered) {
+                        activeEncountered = true
+                        rawSession
+                    } else {
+                        rawSession.copy(
+                            isCompleted = true,
+                            endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
+                        )
+                    }
+                } else {
+                    rawSession
+                }
+            }
+        }
+    }
+
+    fun getEventsForTimeRange(startTime: Long, endTime: Long?): Flow<List<BatteryEventEntity>> {
+        return dao.getEventsInTimeRange(startTime, endTime)
+    }
+
+    suspend fun getTopAppsForDischargeSession(session: DischargingSessionEntity): List<AppDischargeConsumption> {
+        return AppUsageTracker.getTopAppsForDischargeSession(
+            context = context,
+            startTime = session.startTime,
+            endTime = session.endTime,
+            startLevel = session.startLevel,
+            endLevel = session.endLevel,
+            sessionPeakTemp = session.maxTemp,
+            sessionAvgTemp = session.avgTemp
+        )
     }
 
     fun getSessionsForDate(dateKey: String): Flow<List<ChargingSessionEntity>> {
@@ -520,6 +605,25 @@ class BatteryRepository(
 
             val todayKey = formatDateKey(now)
 
+            // Complete any active discharging session
+            val activeDischarge = dao.getActiveDischargeSession()
+            if (activeDischarge != null) {
+                val durSec = max(1L, (now - activeDischarge.startTime) / 1000L)
+                val safeEndLevel = status.level
+                val drain = max(0, activeDischarge.startLevel - safeEndLevel)
+                val speed = if (durSec > 180L) (drain.toFloat() / (durSec / 3600f)) else 0f
+                dao.updateDischargeSession(
+                    activeDischarge.copy(
+                        endTime = now,
+                        endLevel = safeEndLevel,
+                        durationSeconds = durSec,
+                        maxTemp = max(activeDischarge.maxTemp, status.tempCelsius),
+                        drainSpeedPercentPerHour = speed,
+                        isCompleted = true
+                    )
+                )
+            }
+
             // Check if there is already an active session
             val active = dao.getActiveSession()
             val sessionId: Long
@@ -673,6 +777,25 @@ class BatteryRepository(
             // Ensure no lingering active sessions remain
             dao.closeAllActiveSessions(now)
 
+            // Start a new active discharging session
+            val todayKey = formatDateKey(now)
+            val activeDischarge = dao.getActiveDischargeSession()
+            if (activeDischarge == null || (now - activeDischarge.startTime) > 24 * 3600 * 1000L) {
+                dao.closeAllActiveDischargeSessions(now)
+                val newDischarge = DischargingSessionEntity(
+                    startTime = now,
+                    startLevel = status.level,
+                    endLevel = status.level,
+                    startTemp = status.tempCelsius,
+                    maxTemp = status.tempCelsius,
+                    avgTemp = status.tempCelsius,
+                    durationSeconds = 0,
+                    isCompleted = false,
+                    dateKey = todayKey
+                )
+                dao.insertDischargeSession(newDischarge)
+            }
+
             // Notify stability analyzer to evaluate steadiness and track connection frequency
             stabilityAnalyzer.onPowerTransition(isConnected = false)
 
@@ -727,19 +850,76 @@ class BatteryRepository(
             // Keep widget metrics fresh while discharging
             BatteryWidgetProvider.updateAllWidgets(context)
 
+            val activeDischarge = dao.getActiveDischargeSession()
+            if (activeDischarge != null) {
+                val durSecs = max(1L, (now - activeDischarge.startTime) / 1000L)
+                val drain = max(0, activeDischarge.startLevel - status.level)
+                val speed = if (durSecs > 180L) (drain.toFloat() / (durSecs / 3600f)) else 0f
+                dao.updateDischargeSession(
+                    activeDischarge.copy(
+                        endLevel = status.level,
+                        maxTemp = max(activeDischarge.maxTemp, status.tempCelsius),
+                        avgTemp = (activeDischarge.avgTemp * 0.8f) + (status.tempCelsius * 0.2f),
+                        durationSeconds = durSecs,
+                        drainSpeedPercentPerHour = speed
+                    )
+                )
+            } else {
+                val todayKey = formatDateKey(now)
+                val newDischarge = DischargingSessionEntity(
+                    startTime = now,
+                    startLevel = status.level,
+                    endLevel = status.level,
+                    startTemp = status.tempCelsius,
+                    maxTemp = status.tempCelsius,
+                    avgTemp = status.tempCelsius,
+                    durationSeconds = 0,
+                    isCompleted = false,
+                    dateKey = todayKey
+                )
+                dao.insertDischargeSession(newDischarge)
+            }
+
             dao.insertEvent(
                 BatteryEventEntity(
                     timestamp = now,
                     eventType = "SAMPLE",
                     batteryLevel = status.level,
-                    isCharging = status.isCharging,
-                    plugType = status.plugType,
+                    isCharging = false,
+                    plugType = "Battery",
                     temperatureCelsius = status.tempCelsius,
                     voltageMilliVolts = status.voltageMilliVolts,
                     batteryHealth = status.health
                 )
             )
         }
+    }
+
+    suspend fun getDailyDischargeStats(dateKey: String): DailyDischargeStats = withContext(Dispatchers.IO) {
+        val sessions = dao.getDischargeSessionsForDate(dateKey).first()
+        val totalSecs = sessions.sumOf { it.durationSeconds }
+        val totalDrained = sessions.sumOf { max(0, it.startLevel - it.endLevel) }
+        val avgTemp = if (sessions.isNotEmpty()) {
+            sessions.map { it.avgTemp }.average().toFloat()
+        } else 0f
+        val maxTemp = if (sessions.isNotEmpty()) {
+            sessions.maxOf { it.maxTemp }
+        } else 0f
+        val avgDrainRate = if (totalSecs > 180L) {
+            (totalDrained.toFloat() / (totalSecs / 3600f))
+        } else if (sessions.isNotEmpty()) {
+            sessions.map { it.drainSpeedPercentPerHour }.average().toFloat()
+        } else 0f
+
+        DailyDischargeStats(
+            dateKey = dateKey,
+            sessionsCount = sessions.size,
+            totalDischargeDurationSeconds = totalSecs,
+            totalPercentDrained = totalDrained,
+            avgTemperature = avgTemp,
+            maxTemperature = maxTemp,
+            avgDrainRatePercentPerHour = avgDrainRate
+        )
     }
 
     suspend fun getDailyStats(dateKey: String): DailyBatteryStats = withContext(Dispatchers.IO) {
@@ -783,5 +963,6 @@ class BatteryRepository(
     suspend fun clearAllData() = withContext(Dispatchers.IO) {
         dao.clearEvents()
         dao.clearSessions()
+        dao.clearDischargeSessions()
     }
 }

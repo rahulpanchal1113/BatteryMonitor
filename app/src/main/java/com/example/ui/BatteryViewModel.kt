@@ -7,11 +7,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.BatteryEventEntity
 import com.example.data.local.ChargingSessionEntity
+import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.AppBackgroundBatteryUsage
+import com.example.data.model.AppDischargeConsumption
 import com.example.data.model.BatteryStatus
 import com.example.data.model.ChargingInsightSummary
 import com.example.data.model.ConnectionDiagnosticIssue
 import com.example.data.model.DailyBatteryStats
+import com.example.data.model.DailyDischargeStats
 import com.example.data.repository.BatteryRepository
 import com.example.data.sync.GoogleDriveBackupManager
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,11 @@ import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+enum class HistoryTab {
+    CHARGING,
+    DISCHARGING
+}
 
 class BatteryViewModel(
     private val repository: BatteryRepository,
@@ -56,12 +64,26 @@ class BatteryViewModel(
     private val _selectedDate = MutableStateFlow(todayKey)
     val selectedDate: StateFlow<String> = _selectedDate.asStateFlow()
 
+    private val _selectedHistoryTab = MutableStateFlow(HistoryTab.CHARGING)
+    val selectedHistoryTab: StateFlow<HistoryTab> = _selectedHistoryTab.asStateFlow()
+
+    fun setHistoryTab(tab: HistoryTab) {
+        _selectedHistoryTab.value = tab
+    }
+
     val sessionsForSelectedDate: StateFlow<List<ChargingSessionEntity>> = _selectedDate
         .flatMapLatest { date -> repository.getSessionsForDate(date) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val dischargeSessionsForSelectedDate: StateFlow<List<DischargingSessionEntity>> = _selectedDate
+        .flatMapLatest { date -> repository.getDischargeSessionsForDate(date) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _dailyStats = MutableStateFlow<DailyBatteryStats?>(null)
     val dailyStats: StateFlow<DailyBatteryStats?> = _dailyStats.asStateFlow()
+
+    private val _dailyDischargeStats = MutableStateFlow<DailyDischargeStats?>(null)
+    val dailyDischargeStats: StateFlow<DailyDischargeStats?> = _dailyDischargeStats.asStateFlow()
 
     private val _insights = MutableStateFlow<ChargingInsightSummary?>(null)
     val insights: StateFlow<ChargingInsightSummary?> = _insights.asStateFlow()
@@ -80,12 +102,19 @@ class BatteryViewModel(
     init {
         refreshInsights()
         loadDailyStats(todayKey)
+        loadDailyDischargeStats(todayKey)
 
         // Whenever sessions change, update stats and insights
         viewModelScope.launch {
             repository.allSessions.collect {
                 loadDailyStats(_selectedDate.value)
                 refreshInsights()
+            }
+        }
+
+        viewModelScope.launch {
+            repository.allDischargeSessions.collect {
+                loadDailyDischargeStats(_selectedDate.value)
             }
         }
 
@@ -122,9 +151,18 @@ class BatteryViewModel(
         return repository.getEventsForSession(sessionId)
     }
 
+    fun getEventsForTimeRange(startTime: Long, endTime: Long?): kotlinx.coroutines.flow.Flow<List<BatteryEventEntity>> {
+        return repository.getEventsForTimeRange(startTime, endTime)
+    }
+
+    suspend fun getTopAppsForDischarge(session: DischargingSessionEntity): List<AppDischargeConsumption> {
+        return repository.getTopAppsForDischargeSession(session)
+    }
+
     fun selectDate(dateKey: String) {
         _selectedDate.value = dateKey
         loadDailyStats(dateKey)
+        loadDailyDischargeStats(dateKey)
     }
 
     fun toggleTempUnit() {
@@ -158,10 +196,17 @@ class BatteryViewModel(
         }
     }
 
+    private fun loadDailyDischargeStats(dateKey: String) {
+        viewModelScope.launch {
+            _dailyDischargeStats.value = repository.getDailyDischargeStats(dateKey)
+        }
+    }
+
     fun clearAllData() {
         viewModelScope.launch {
             repository.clearAllData()
             loadDailyStats(_selectedDate.value)
+            loadDailyDischargeStats(_selectedDate.value)
             refreshInsights()
         }
     }

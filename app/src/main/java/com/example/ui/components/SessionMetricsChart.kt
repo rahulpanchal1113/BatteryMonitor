@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -586,21 +587,29 @@ fun SessionMetricsChart(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // 3-Stage thermal speed breakdown bar
+                    // 3-Stage thermal speed breakdown bar (equal height cards)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Color(0xFF22C55E).copy(alpha = 0.12f))
-                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(
+                                modifier = Modifier.fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text("<36°C Cool", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFF15803D))
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text("100% Speed", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF16A34A))
                             }
                         }
@@ -608,13 +617,19 @@ fun SessionMetricsChart(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Color(0xFFF59E0B).copy(alpha = 0.12f))
-                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(
+                                modifier = Modifier.fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text("38-44°C Hot", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB45309))
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text("~55% Speed", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFD97706))
                             }
                         }
@@ -622,13 +637,19 @@ fun SessionMetricsChart(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Color(0xFFDC2626).copy(alpha = 0.12f))
-                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(
+                                modifier = Modifier.fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text("≥45°C Overheat", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB91C1C))
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text("~20% (Throttled)", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFDC2626))
                             }
                         }

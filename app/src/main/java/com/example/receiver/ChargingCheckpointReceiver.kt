@@ -31,6 +31,7 @@ class ChargingCheckpointReceiver : BroadcastReceiver() {
                 val action = intent.action
                 if (action == ChargingAlarmScheduler.ACTION_WIDGET_REFRESH) {
                     app.repository.updateLiveStatus()
+                    app.repository.logBatterySample()
                     BatteryWidgetProvider.updateAllWidgets(context)
                     ChargingAlarmScheduler.scheduleWidgetPeriodicRefresh(context, 15 * 60_000L)
                     return@launch
