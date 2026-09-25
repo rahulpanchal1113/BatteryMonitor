@@ -35,11 +35,30 @@ class BatteryWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
+            Intent.ACTION_POWER_DISCONNECTED -> {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putBoolean("is_plugged", false).apply()
+                val pendingResult = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val app = context.applicationContext as? com.example.BatteryApplication
+                        app?.repository?.onPowerDisconnected()
+                        updateAllWidgetsDirect(context)
+                    } finally {
+                        try {
+                            pendingResult.finish()
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
             ACTION_UPDATE_WIDGET,
+            ACTION_WIDGET_REFRESH,
             Intent.ACTION_POWER_CONNECTED,
-            Intent.ACTION_POWER_DISCONNECTED,
             Intent.ACTION_BATTERY_CHANGED,
             Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_LOCKED_BOOT_COMPLETED,
+            "android.intent.action.QUICKBOOT_POWERON",
+            Intent.ACTION_MY_PACKAGE_REPLACED,
             AppWidgetManager.ACTION_APPWIDGET_UPDATE -> {
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
@@ -57,6 +76,7 @@ class BatteryWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_UPDATE_WIDGET = "com.example.ACTION_BATTERY_WIDGET_UPDATE"
+        const val ACTION_WIDGET_REFRESH = "com.example.ACTION_WIDGET_REFRESH"
         private const val PREFS_NAME = "widget_battery_prefs"
 
         fun updateAllWidgets(context: Context) {
@@ -130,8 +150,34 @@ class BatteryWidgetProvider : AppWidgetProvider() {
             val isChargingStatus = statusInt == BatteryManager.BATTERY_STATUS_CHARGING ||
                     statusInt == BatteryManager.BATTERY_STATUS_FULL
             val bmCharging = bm?.isCharging ?: false
+            val bmStatus = try {
+                bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+            } catch (_: Exception) { -1 }
+            val bmChargingStatus = bmStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    bmStatus == BatteryManager.BATTERY_STATUS_FULL
 
-            val isCharging = bmCharging || isPluggedHardware || isChargingStatus || pluggedInPref
+            // Reliable physical charging state: If hardware explicitly reports unplugged / discharging,
+            // never let stale preferences override reality
+            val isExplicitlyUnplugged = (plugged == 0 || (batteryIntent != null && !isPluggedHardware)) && !bmCharging && !bmChargingStatus
+            val isHardwareCharging = isPluggedHardware || bmCharging || isChargingStatus || bmChargingStatus
+
+            val isCharging = if (isExplicitlyUnplugged) {
+                false
+            } else {
+                isHardwareCharging || (pluggedInPref && activeSession != null)
+            }
+
+            if (!isCharging) {
+                prefs.edit().putBoolean("is_plugged", false).apply()
+                if (activeSession != null) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val app = context.applicationContext as? com.example.BatteryApplication
+                            app?.repository?.onPowerDisconnected()
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
 
             val plugSource = when (plugged) {
                 BatteryManager.BATTERY_PLUGGED_AC -> "AC Adapter"
@@ -236,24 +282,25 @@ class BatteryWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_since_time, sinceText)
             } else {
                 // Discharging / On Battery mode
-                // Prefer latest completed session directly from database
+                // Prefer latest completed session directly from database, or session that just ended
+                val effectiveSession = latestCompletedSession ?: activeSession
                 val lastStart: Int
                 val lastEnd: Int
                 val lastDurationSec: Long
                 val lastPlugType: String
 
-                if (latestCompletedSession != null) {
-                    lastStart = latestCompletedSession.startLevel
-                    lastEnd = max(latestCompletedSession.startLevel, latestCompletedSession.endLevel)
-                    lastDurationSec = if (latestCompletedSession.durationSeconds > 0) {
-                        latestCompletedSession.durationSeconds
+                if (effectiveSession != null) {
+                    lastStart = effectiveSession.startLevel
+                    lastEnd = max(effectiveSession.startLevel, if (effectiveSession == activeSession) level else effectiveSession.endLevel)
+                    lastDurationSec = if (effectiveSession.durationSeconds > 0) {
+                        effectiveSession.durationSeconds
                     } else {
-                        max(1L, ((latestCompletedSession.endTime ?: now) - latestCompletedSession.startTime) / 1000L)
+                        max(1L, ((effectiveSession.endTime ?: now) - effectiveSession.startTime) / 1000L)
                     }
-                    lastPlugType = if (latestCompletedSession.plugType.isNotBlank() && !latestCompletedSession.plugType.equals("Battery", ignoreCase = true)) {
-                        latestCompletedSession.plugType
+                    lastPlugType = if (effectiveSession.plugType.isNotBlank() && !effectiveSession.plugType.equals("Battery", ignoreCase = true)) {
+                        effectiveSession.plugType
                     } else {
-                        "Charger"
+                        prefs.getString("last_plug_type", null) ?: "Charger"
                     }
 
                     // Keep SharedPreferences aligned with the authoritative database record
@@ -263,13 +310,14 @@ class BatteryWidgetProvider : AppWidgetProvider() {
                         .putInt("last_start_level", lastStart)
                         .putInt("last_end_level", lastEnd)
                         .putString("last_plug_type", lastPlugType)
-                        .putLong("last_end_time", latestCompletedSession.endTime ?: now)
+                        .putLong("last_end_time", effectiveSession.endTime ?: now)
                         .apply()
                 } else {
                     lastDurationSec = prefs.getLong("last_duration_seconds", 0L)
                     lastStart = prefs.getInt("last_start_level", -1)
                     lastEnd = prefs.getInt("last_end_level", -1)
                     lastPlugType = prefs.getString("last_plug_type", null) ?: "Charger"
+                    prefs.edit().putBoolean("is_plugged", false).apply()
                 }
 
                 views.setTextViewText(R.id.widget_percent, "$level%")

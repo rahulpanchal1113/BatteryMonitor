@@ -86,7 +86,13 @@ class MainActivity : ComponentActivity() {
             addAction(android.content.Intent.ACTION_POWER_DISCONNECTED)
             addAction(android.content.Intent.ACTION_BATTERY_CHANGED)
         }
-        registerReceiver(powerStateReceiver, filter)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(powerStateReceiver, filter, android.content.Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(powerStateReceiver, filter)
+        }
+
+        startMonitorService()
 
         setContent {
             val darkThemePref by viewModel.darkTheme.collectAsStateWithLifecycle()
@@ -100,8 +106,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        startMonitorService()
         if (::viewModel.isInitialized) {
             viewModel.refreshLiveStatus()
+        }
+    }
+
+    private fun startMonitorService() {
+        try {
+            val serviceIntent = android.content.Intent(this, com.example.service.BatteryMonitorService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Failed to start BatteryMonitorService", e)
         }
     }
 

@@ -171,25 +171,27 @@ object InsightsCalculator {
             }
         }
 
-        // Thermal correlation analysis
-        val hotSamples = allRateSamples.filter { it.tempCelsius >= 37.0f }
+        // Thermal correlation analysis & overheat speed reduction
+        val hotSamples = allRateSamples.filter { it.tempCelsius >= 38.0f }
         val coolSamples = allRateSamples.filter { it.tempCelsius < 35.0f }
 
         val thermalNote = if (!hasEnoughData) {
             "Collecting battery data… Insights, fastest charging zone, and thermal characteristics will automatically show up after a few charging cycles."
+        } else if (sessions.any { it.maxTemp >= 45.0f }) {
+            "CRITICAL OVERHEAT (>45°C) DETECTED: Hardware thermal protection severely throttles charging speed (by up to 75%) to protect the battery cell from damage."
         } else if (hotSamples.size >= 2 && coolSamples.size >= 2) {
             val avgHotRate = hotSamples.map { it.ratePerHour }.average().toFloat()
             val avgCoolRate = coolSamples.map { it.ratePerHour }.average().toFloat()
             val diffPct = ((avgCoolRate - avgHotRate) / max(1f, avgCoolRate) * 100f).toInt()
             if (diffPct > 10) {
-                "Charging slows by ~$diffPct% when battery temperature rises above 37°C due to thermal throttling protection."
+                "Thermal Throttling: Charging slows by ~$diffPct% as temperatures rise above 38°C, and drops sharply if reaching the 45°C overheat threshold."
             } else {
-                "Charging speeds remain stable across temperatures up to 37.5°C."
+                "Charging speeds remain stable across temperatures. Thermal protection activates if reaching 45°C."
             }
         } else if (peakBracket != null) {
-            "Phone achieves maximum charging speed between ${peakBracket.startPercent}% and ${peakBracket.endPercent}%.${if (dropOffLevel != null) " Speeds begin tapering after $dropOffLevel% to protect battery cell longevity." else ""}"
+            "Phone achieves maximum charging speed between ${peakBracket.startPercent}% and ${peakBracket.endPercent}%. Charging speeds taper down when hot or overheating (>45°C) to protect cell health."
         } else {
-            "Continue plugging in your adapter to refine charge velocity and temperature correlation."
+            "Continue plugging in your adapter to refine charge velocity and thermal curve correlation."
         }
 
         val totalHours = sessions.sumOf { it.durationSeconds }.toFloat() / 3600f
@@ -199,42 +201,31 @@ object InsightsCalculator {
             0f
         }
 
-        // Overheating Analysis (Thresholds: Overheat >= 45.0°C, Hot >= 40.0°C, Warm >= 38.0°C)
+        // Overheating Analysis: strictly only log and flag sessions that actually overheat above 45°C
         val peakTempFromSessions = sessions.map { it.maxTemp }.maxOrNull() ?: 0f
         val peakTempFromEvents = events.map { it.temperatureCelsius }.maxOrNull() ?: 0f
         val peakRecordedTemp = max(peakTempFromSessions, peakTempFromEvents)
 
-        val overheatSessions = sessions.filter { it.maxTemp >= 38.0f }.sortedByDescending { it.startTime }
+        // Only sessions reaching or exceeding 45.0°C are categorized as overheat incidents
+        val overheatSessions = sessions.filter { it.maxTemp >= 45.0f }.sortedByDescending { it.startTime }
         val recentIncidents = overheatSessions.take(5).map { s ->
-            val wasThrottled = s.maxTemp >= 39.5f
-            val desc = if (s.maxTemp >= 45.0f) {
-                "OVERHEAT (${String.format(Locale.US, "%.1f°C", s.maxTemp)}) • Exceeded 45°C safety threshold"
-            } else if (s.maxTemp >= 40.0f) {
-                "High thermal spike (${String.format(Locale.US, "%.1f°C", s.maxTemp)}) • Aggressive throttling"
-            } else if (s.maxTemp >= 38.5f) {
-                "Elevated temperature (${String.format(Locale.US, "%.1f°C", s.maxTemp)}) • Moderate charging taper"
-            } else {
-                "Warm charging cycle (${String.format(Locale.US, "%.1f°C", s.maxTemp)}) • Normal heat dissipation"
-            }
             OverheatIncident(
                 timestamp = s.startTime,
                 peakTempCelsius = s.maxTemp,
                 durationSeconds = s.durationSeconds,
                 sessionPlugType = s.plugType,
-                wasThrottled = wasThrottled,
-                description = desc
+                wasThrottled = true,
+                description = "CRITICAL OVERHEAT (${String.format(Locale.US, "%.1f°C", s.maxTemp)}) • Exceeded 45°C safety threshold"
             )
         }
 
         val totalIncidents = overheatSessions.size
-        val totalOverheatAbove45 = sessions.count { it.maxTemp >= 45.0f }
+        val totalOverheatAbove45 = totalIncidents
         val lastIncidentTime = overheatSessions.firstOrNull()?.startTime
         val safetyStatus = when {
             peakRecordedTemp >= 45.0f -> "CRITICAL OVERHEAT (>45°C)"
-            peakRecordedTemp >= 41.0f -> "Thermal Throttling Alert"
-            peakRecordedTemp >= 39.0f -> "Warm Cycles Logged"
-            peakRecordedTemp > 0f -> "Optimal Thermal Control"
-            else -> "Safe Thermal Profile"
+            peakRecordedTemp > 0f -> "Safe Thermal Profile (<45°C)"
+            else -> "Safe Thermal Profile (<45°C)"
         }
 
         val overheatingSummary = OverheatingSummary(

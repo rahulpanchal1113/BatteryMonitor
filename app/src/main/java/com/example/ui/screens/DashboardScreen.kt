@@ -68,7 +68,7 @@ fun DashboardScreen(
     var selectedSessionForDetail by remember { mutableStateOf<ChargingSessionEntity?>(null) }
 
     val todayDateKey = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
-    val deduplicatedSessions = remember(allSessions, liveStatus.isCharging) {
+    val meaningfulSessions = remember(allSessions, liveStatus.isCharging) {
         var activeEncountered = false
         allSessions.mapNotNull { session ->
             if (!session.isCompleted) {
@@ -89,10 +89,17 @@ fun DashboardScreen(
             } else {
                 session
             }
+        }.filter { session ->
+            if (!session.isCompleted && liveStatus.isCharging) {
+                true
+            } else {
+                val percentGained = max(0, session.endLevel - session.startLevel)
+                session.durationSeconds >= 120L || percentGained >= 1
+            }
         }
     }
-    val todayCyclesCount = remember(deduplicatedSessions, todayDateKey) {
-        deduplicatedSessions.count { it.dateKey == todayDateKey }
+    val todayCyclesCount = remember(meaningfulSessions, todayDateKey) {
+        meaningfulSessions.count { it.dateKey == todayDateKey }
     }
 
     LazyColumn(
@@ -266,7 +273,7 @@ fun DashboardScreen(
             }
         }
 
-        if (deduplicatedSessions.isEmpty()) {
+        if (meaningfulSessions.isEmpty()) {
             item {
                 Card(
                     modifier = Modifier
@@ -290,7 +297,7 @@ fun DashboardScreen(
                 }
             }
         } else {
-            items(deduplicatedSessions.take(5), key = { it.id }) { session ->
+            items(meaningfulSessions.take(5), key = { it.id }) { session ->
                 ChargingSessionCard(
                     session = session,
                     useFahrenheit = useFahrenheit,

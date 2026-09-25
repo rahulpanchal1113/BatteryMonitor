@@ -93,15 +93,17 @@ class BatteryRepository(
     val availableDates: Flow<List<String>> = dao.getAvailableDates()
 
     init {
-        // Clean up legacy phantom sessions and guarantee no stale active sessions exist
+        // Clean up legacy sessions and guarantee no stale active sessions exist
         coroutineScope.launch {
             try {
-                dao.deletePhantomFallbackSessions()
                 dao.fixBatteryPlugTypeSessions()
                 dao.fixNegativeEndLevelSessions()
                 val currentStatus = queryCurrentBatteryStatus()
-                if (!currentStatus.isCharging) {
-                    dao.closeAllActiveSessions(System.currentTimeMillis())
+                val active = dao.getActiveSession()
+                val now = System.currentTimeMillis()
+                // Only clean up ancient abandoned active sessions (> 10 mins ago) if confirmed discharging
+                if (active != null && !currentStatus.isCharging && (now - active.startTime) > 10 * 60 * 1000L) {
+                    dao.closeAllActiveSessions(now)
                 }
             } catch (_: Exception) {}
         }
@@ -147,24 +149,44 @@ class BatteryRepository(
     }
 
     fun queryCurrentBatteryStatus(): BatteryStatus {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val bmIsCharging = try {
+            bm?.isCharging == true
+        } catch (_: Exception) { false }
+        val bmCapacity = try {
+            bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        } catch (_: Exception) { -1 }
+        val bmStatus = try {
+            bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+        } catch (_: Exception) { -1 }
+
         val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val intent = context.registerReceiver(null, intentFilter) ?: return BatteryStatus()
+        val intent = try {
+            context.registerReceiver(null, intentFilter)
+        } catch (_: Exception) { null }
 
-        val rawLevel = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-        val rawScale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-        val level = if (rawLevel >= 0 && rawScale > 0) (rawLevel * 100) / rawScale else 50
+        val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val rawScale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val level = when {
+            rawLevel >= 0 && rawScale > 0 -> (rawLevel * 100) / rawScale
+            bmCapacity in 0..100 -> bmCapacity
+            _liveBatteryStatus.value.level > 0 -> _liveBatteryStatus.value.level
+            else -> 50
+        }
 
-        val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
+        val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
         val isPlugged = (plugged == BatteryManager.BATTERY_PLUGGED_AC ||
                 plugged == BatteryManager.BATTERY_PLUGGED_USB ||
                 plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS ||
                 plugged > 0)
 
-        val statusInt = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val statusInt = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: bmStatus
         // Connected to car/USB/external power counts as charging/connected even if discharging under heavy GPS load
-        val isCharging = isPlugged ||
+        val isCharging = bmIsCharging || isPlugged ||
                 statusInt == BatteryManager.BATTERY_STATUS_CHARGING ||
-                statusInt == BatteryManager.BATTERY_STATUS_FULL
+                statusInt == BatteryManager.BATTERY_STATUS_FULL ||
+                bmStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                bmStatus == BatteryManager.BATTERY_STATUS_FULL
 
         val statusString = when {
             statusInt == BatteryManager.BATTERY_STATUS_CHARGING -> "Charging"
@@ -183,15 +205,17 @@ class BatteryRepository(
             plugged == BatteryManager.BATTERY_PLUGGED_AC -> "AC Adapter"
             plugged == BatteryManager.BATTERY_PLUGGED_USB -> "USB / Car Port"
             plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless"
-            else -> if (isCharging) "External Power" else "Battery"
+            isPlugged -> "External Power"
+            isCharging -> "AC Adapter"
+            else -> "Battery"
         }
 
-        val tempRaw = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 310)
+        val tempRaw = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 310) ?: 310
         val tempCelsius = tempRaw / 10f
 
-        val voltage = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 4000)
+        val voltage = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 4000) ?: 4000
 
-        val healthInt = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, -1)
+        val healthInt = intent?.getIntExtra(BatteryManager.EXTRA_HEALTH, -1) ?: -1
         val health = when (healthInt) {
             BatteryManager.BATTERY_HEALTH_GOOD -> "Good"
             BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Overheat"
@@ -202,9 +226,8 @@ class BatteryRepository(
             else -> "Good"
         }
 
-        val tech = intent.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Li-ion"
+        val tech = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Li-ion"
 
-        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
         val rawCurrent = try {
             bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: 0
         } catch (_: Exception) {
@@ -471,11 +494,16 @@ class BatteryRepository(
         BatteryWidgetProvider.updateAllWidgets(context)
     }
 
+    private fun formatDateKey(timestamp: Long): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        return sdf.format(Date(timestamp))
+    }
+
     suspend fun onPowerConnected() = withContext(Dispatchers.IO) {
         powerLock.withLock {
             val now = System.currentTimeMillis()
-            // Debounce rapid duplicate connected events within 2.5 seconds
-            if (now - lastPowerConnectedTime < 2500L) {
+            // Debounce rapid duplicate connected events within 1.2 seconds
+            if (now - lastPowerConnectedTime < 1200L) {
                 val status = queryCurrentBatteryStatus()
                 _liveBatteryStatus.value = status
                 BatteryWidgetProvider.updateAllWidgets(context)
@@ -484,21 +512,18 @@ class BatteryRepository(
             lastPowerConnectedTime = now
 
             val status = queryCurrentBatteryStatus()
-            _liveBatteryStatus.value = status
-
-            val todayKey = dateFormat.format(Date(now))
-
             val effectivePlugType = when {
                 status.plugType.isNotBlank() && !status.plugType.equals("Battery", ignoreCase = true) -> status.plugType
                 else -> "AC Adapter"
             }
+            _liveBatteryStatus.value = status.copy(isCharging = true, plugType = effectivePlugType)
+
+            val todayKey = formatDateKey(now)
 
             // Check if there is already an active session
             val active = dao.getActiveSession()
             val sessionId: Long
             if (active == null || (now - active.startTime) > 24 * 3600 * 1000L) {
-                // Close any existing stale uncompleted sessions to guarantee NO duplicate active states
-                dao.closeAllActiveSessions(now)
                 val newSession = ChargingSessionEntity(
                     startTime = now,
                     startLevel = status.level,
@@ -562,20 +587,22 @@ class BatteryRepository(
     suspend fun onPowerDisconnected() = withContext(Dispatchers.IO) {
         powerLock.withLock {
             val now = System.currentTimeMillis()
-            // Debounce rapid duplicate disconnect events within 2.5 seconds
-            if (now - lastPowerDisconnectedTime < 2500L) {
-                val status = queryCurrentBatteryStatus()
-                _liveBatteryStatus.value = status
+            val widgetPrefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
+            // Immediately mark unplugged in SharedPreferences to prevent widget lag
+            widgetPrefs.edit().putBoolean("is_plugged", false).apply()
+
+            // Debounce rapid duplicate disconnect events within 1.2 seconds
+            if (now - lastPowerDisconnectedTime < 1200L) {
+                _liveBatteryStatus.value = _liveBatteryStatus.value.copy(isCharging = false, plugType = "Battery")
                 BatteryWidgetProvider.updateAllWidgets(context)
                 return@withLock
             }
             lastPowerDisconnectedTime = now
 
             val status = queryCurrentBatteryStatus()
-            _liveBatteryStatus.value = status
+            _liveBatteryStatus.value = status.copy(isCharging = false, plugType = "Battery")
 
             val active = dao.getActiveSession()
-            val widgetPrefs = context.getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
 
             if (active != null) {
                 val durationSeconds = max(1L, (now - active.startTime) / 1000L)
@@ -583,6 +610,7 @@ class BatteryRepository(
                 val deltaLevel = max(0, safeEndLevel - active.startLevel)
                 val durationHours = durationSeconds.toFloat() / 3600f
                 val speed = if (durationHours > 0.05f) (deltaLevel.toFloat() / durationHours) else 0f
+                val plugTypeStr = if (active.plugType.isNotBlank() && !active.plugType.equals("Battery", ignoreCase = true)) active.plugType else "Wall Charger"
 
                 widgetPrefs.edit()
                     .putBoolean("is_plugged", false)
@@ -590,6 +618,7 @@ class BatteryRepository(
                     .putInt("last_start_level", active.startLevel)
                     .putInt("last_end_level", safeEndLevel)
                     .putLong("last_end_time", now)
+                    .putString("last_plug_type", plugTypeStr)
                     .apply()
 
                 val completed = active.copy(
@@ -602,8 +631,6 @@ class BatteryRepository(
                     isCompleted = true
                 )
                 dao.updateSession(completed)
-                // Guarantee all uncompleted active sessions in database are cleanly closed
-                dao.closeAllActiveSessions(now)
 
                 if (!completed.isDisplayable) {
                     stabilityAnalyzer.incrementFilteredJitter()
@@ -623,6 +650,10 @@ class BatteryRepository(
                     )
                 )
             } else {
+                widgetPrefs.edit()
+                    .putBoolean("is_plugged", false)
+                    .apply()
+
                 // Unplugged when no active session was tracking; record unplug event without creating fake 60s sessions
                 dao.insertEvent(
                     BatteryEventEntity(
@@ -639,7 +670,7 @@ class BatteryRepository(
                 )
             }
 
-            // Guarantee all sessions in database are marked completed upon unplugging
+            // Ensure no lingering active sessions remain
             dao.closeAllActiveSessions(now)
 
             // Notify stability analyzer to evaluate steadiness and track connection frequency
@@ -658,20 +689,21 @@ class BatteryRepository(
         val now = System.currentTimeMillis()
         val active = dao.getActiveSession()
 
-        if (active != null && status.isCharging) {
+        if (active != null) {
             val effectivePlugType = if (active.plugType.equals("Battery", ignoreCase = true) || active.plugType.isBlank()) {
                 if (status.plugType.isNotBlank() && !status.plugType.equals("Battery", ignoreCase = true)) status.plugType else "AC Adapter"
             } else {
                 active.plugType
             }
             val safeEndLevel = max(active.startLevel, status.level)
+            val durationSecs = max(1L, (now - active.startTime) / 1000L)
             // Update active session running metrics
             val updated = active.copy(
                 plugType = effectivePlugType,
                 endLevel = safeEndLevel,
                 maxTemp = max(active.maxTemp, status.tempCelsius),
                 avgTemp = (active.avgTemp * 0.8f) + (status.tempCelsius * 0.2f),
-                durationSeconds = (now - active.startTime) / 1000L
+                durationSeconds = durationSecs
             )
             dao.updateSession(updated)
 

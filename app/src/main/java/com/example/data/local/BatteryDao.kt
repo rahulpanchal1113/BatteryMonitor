@@ -51,14 +51,14 @@ interface BatteryDao {
     @Query("SELECT * FROM charging_sessions WHERE isCompleted = 1 ORDER BY startTime DESC LIMIT :limit")
     suspend fun getCompletedSessionsList(limit: Int = 50): List<ChargingSessionEntity>
 
-    @Query("SELECT * FROM charging_sessions WHERE isCompleted = 1 AND (durationSeconds >= 60 OR endLevel > startLevel) ORDER BY startTime DESC LIMIT 1")
+    @Query("SELECT * FROM charging_sessions WHERE isCompleted = 1 AND (durationSeconds >= 120 OR endLevel > startLevel) ORDER BY startTime DESC LIMIT 1")
     suspend fun getLatestValidCompletedSession(): ChargingSessionEntity?
 
     @Query("SELECT * FROM charging_sessions ORDER BY startTime DESC LIMIT 1")
     suspend fun getLatestSession(): ChargingSessionEntity?
 
-    @Query("DELETE FROM charging_sessions WHERE durationSeconds = 60 AND startLevel = endLevel AND peakSpeedPercentPerHour = 0")
-    suspend fun deletePhantomFallbackSessions()
+    @Query("SELECT COUNT(*) FROM charging_sessions")
+    suspend fun getSessionsCount(): Int
 
     @Query("UPDATE charging_sessions SET plugType = 'Wall Charger' WHERE plugType = 'Battery' OR plugType = ''")
     suspend fun fixBatteryPlugTypeSessions()

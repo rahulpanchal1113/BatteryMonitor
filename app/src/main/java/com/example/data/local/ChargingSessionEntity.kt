@@ -31,6 +31,6 @@ data class ChargingSessionEntity(
         get() {
             if (!isCompleted) return true
             val percentGained = kotlin.math.max(0, endLevel - startLevel)
-            return durationSeconds >= 60L || percentGained >= 1
+            return durationSeconds >= 120L || percentGained >= 1
         }
 }

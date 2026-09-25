@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import com.example.data.local.BatteryDatabase
 import com.example.data.repository.BatteryRepository
 import com.example.widget.BatteryWidgetProvider
@@ -27,6 +28,15 @@ class BatteryApplication : Application() {
     private val dynamicBatteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (context == null || intent == null) return
+
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val wakeLock = powerManager?.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "BatteryApp:DynamicReceiverWakeLock"
+            )?.apply {
+                setReferenceCounted(false)
+                acquire(10_000L)
+            }
 
             when (intent.action) {
                 Intent.ACTION_BATTERY_CHANGED -> {
@@ -48,9 +58,19 @@ class BatteryApplication : Application() {
                         lastObservedPercent = percent
                         repository.updateLiveStatus()
                         if (isCharging) {
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                repository.logBatterySample()
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    repository.logBatterySample()
+                                } finally {
+                                    try {
+                                        if (wakeLock?.isHeld == true) wakeLock.release()
+                                    } catch (_: Exception) {}
+                                }
                             }
+                        } else {
+                            try {
+                                if (wakeLock?.isHeld == true) wakeLock.release()
+                            } catch (_: Exception) {}
                         }
                         BatteryWidgetProvider.updateAllWidgets(context)
                     }
@@ -60,31 +80,60 @@ class BatteryApplication : Application() {
                     lastObservedCharging = isCharging
 
                     if (prevCharging != null && prevCharging != isCharging) {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            if (isCharging) {
-                                repository.onPowerConnected()
-                            } else {
-                                repository.onPowerDisconnected()
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                if (isCharging) {
+                                    repository.onPowerConnected()
+                                } else {
+                                    repository.onPowerDisconnected()
+                                }
+                                BatteryWidgetProvider.updateAllWidgets(context)
+                            } finally {
+                                try {
+                                    if (wakeLock?.isHeld == true) wakeLock.release()
+                                } catch (_: Exception) {}
                             }
-                            BatteryWidgetProvider.updateAllWidgets(context)
                         }
+                    } else if (percent == lastObservedPercent) {
+                        try {
+                            if (wakeLock?.isHeld == true) wakeLock.release()
+                        } catch (_: Exception) {}
                     }
                 }
 
                 Intent.ACTION_POWER_CONNECTED -> {
                     lastObservedCharging = true
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        repository.onPowerConnected()
-                        BatteryWidgetProvider.updateAllWidgets(context)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            repository.onPowerConnected()
+                            BatteryWidgetProvider.updateAllWidgets(context)
+                        } finally {
+                            try {
+                                if (wakeLock?.isHeld == true) wakeLock.release()
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
 
                 Intent.ACTION_POWER_DISCONNECTED -> {
                     lastObservedCharging = false
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        repository.onPowerDisconnected()
-                        BatteryWidgetProvider.updateAllWidgets(context)
+                    val prefs = getSharedPreferences("widget_battery_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("is_plugged", false).apply()
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            repository.onPowerDisconnected()
+                            BatteryWidgetProvider.updateAllWidgets(context)
+                        } finally {
+                            try {
+                                if (wakeLock?.isHeld == true) wakeLock.release()
+                            } catch (_: Exception) {}
+                        }
                     }
+                }
+                else -> {
+                    try {
+                        if (wakeLock?.isHeld == true) wakeLock.release()
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -95,6 +144,9 @@ class BatteryApplication : Application() {
         instance = this
         createNotificationChannel()
 
+        // Ensure persistent JobScheduler monitors hardware charging events across reboots
+        com.example.service.ChargingJobService.scheduleChargingJob(this)
+
         // Initialize state directly from system status on launch
         val initialStatus = repository.queryCurrentBatteryStatus()
         lastObservedCharging = initialStatus.isCharging
@@ -104,6 +156,9 @@ class BatteryApplication : Application() {
                 repository.onPowerConnected()
                 BatteryWidgetProvider.updateAllWidgets(this@BatteryApplication)
             }
+            com.example.receiver.ChargingAlarmScheduler.scheduleNextCheckpoint(this, 20_000L)
+        } else {
+            com.example.receiver.ChargingAlarmScheduler.scheduleWidgetPeriodicRefresh(this, 15 * 60_000L)
         }
 
         // Register dynamic battery listener so home screen widget updates in real time
@@ -112,7 +167,11 @@ class BatteryApplication : Application() {
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)
         }
-        registerReceiver(dynamicBatteryReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(dynamicBatteryReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(dynamicBatteryReceiver, filter)
+        }
     }
 
     private fun createNotificationChannel() {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,7 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -49,7 +53,8 @@ import kotlin.math.min
 data class SessionChartDataPoint(
     val timestamp: Long,
     val batteryPercent: Float,
-    val tempDisplay: Float
+    val tempDisplay: Float,
+    val tempCelsius: Float
 )
 
 @Composable
@@ -63,6 +68,7 @@ fun SessionMetricsChart(
 
     val batteryColor = Color(0xFF22C55E) // Vibrant emerald green
     val tempColor = Color(0xFFF97316)    // Vibrant orange
+    val overheatColor = Color(0xFFDC2626) // Crimson red
 
     // Build data points for the curves
     val points = remember(session, events, useFahrenheit) {
@@ -76,11 +82,13 @@ fun SessionMetricsChart(
         if (events.isNotEmpty()) {
             val sorted = events.sortedBy { it.timestamp }
             sorted.forEach { ev ->
+                val safeC = if (ev.temperatureCelsius > 0f) ev.temperatureCelsius else 30f
                 rawPoints.add(
                     SessionChartDataPoint(
                         timestamp = ev.timestamp,
                         batteryPercent = ev.batteryLevel.toFloat(),
-                        tempDisplay = toDisplayTemp(ev.temperatureCelsius)
+                        tempDisplay = toDisplayTemp(safeC),
+                        tempCelsius = safeC
                     )
                 )
             }
@@ -90,12 +98,12 @@ fun SessionMetricsChart(
         if (rawPoints.isEmpty()) {
             val startT = session.startTime
             val endT = session.endTime ?: (session.startTime + max(60_000L, session.durationSeconds * 1000L))
-            val startTemp = toDisplayTemp(session.startTemp)
-            val endTemp = toDisplayTemp(if (session.maxTemp > 0f) session.maxTemp else session.startTemp)
+            val startTempC = if (session.startTemp > 0f) session.startTemp else 30f
+            val endTempC = if (session.maxTemp > 0f) session.maxTemp else startTempC
 
             val safeEnd = max(session.startLevel, session.endLevel)
-            rawPoints.add(SessionChartDataPoint(startT, session.startLevel.toFloat(), startTemp))
-            rawPoints.add(SessionChartDataPoint(endT, safeEnd.toFloat(), endTemp))
+            rawPoints.add(SessionChartDataPoint(startT, session.startLevel.toFloat(), toDisplayTemp(startTempC), startTempC))
+            rawPoints.add(SessionChartDataPoint(endT, safeEnd.toFloat(), toDisplayTemp(endTempC), endTempC))
         }
 
         // If only 2 points and span is > 2 mins, generate smooth intermediate checkpoints
@@ -110,10 +118,9 @@ fun SessionMetricsChart(
                 for (i in 1 until steps) {
                     val frac = i.toFloat() / steps
                     val t = (p0.timestamp + (span * frac)).toLong()
-                    // Li-Ion charge curve slightly concaves or is linear
                     val level = p0.batteryPercent + ((p1.batteryPercent - p0.batteryPercent) * frac)
-                    val temp = p0.tempDisplay + ((p1.tempDisplay - p0.tempDisplay) * (frac * 1.1f).coerceAtMost(1f))
-                    interpolated.add(SessionChartDataPoint(t, level, temp))
+                    val cTemp = p0.tempCelsius + ((p1.tempCelsius - p0.tempCelsius) * frac)
+                    interpolated.add(SessionChartDataPoint(t, level, toDisplayTemp(cTemp), cTemp))
                 }
                 interpolated.add(p1)
                 interpolated
@@ -124,6 +131,10 @@ fun SessionMetricsChart(
             rawPoints
         }
     }
+
+    val maxTempC = remember(points) { points.maxOfOrNull { it.tempCelsius } ?: 30f }
+    val isOverheatedAbove45 = maxTempC >= 45.0f
+    val isThrottled = maxTempC >= 39.0f
 
     val minBattery = remember(points) {
         val minP = points.minOfOrNull { it.batteryPercent } ?: 0f
@@ -177,10 +188,30 @@ fun SessionMetricsChart(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Unified progression over charge duration",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (isOverheatedAbove45) "CRITICAL OVERHEAT: Curve flattens as speed throttles" else "Speed throttle correlation over duration",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = if (isOverheatedAbove45) FontWeight.Bold else FontWeight.Normal
+                        ),
+                        color = if (isOverheatedAbove45) overheatColor else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                if (isOverheatedAbove45) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(overheatColor)
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "OVERHEAT >45°C",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 8.5.sp
+                            ),
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
@@ -214,14 +245,14 @@ fun SessionMetricsChart(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(tempColor)
+                            .background(if (isOverheatedAbove45) overheatColor else tempColor)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     val endTempStr = String.format(Locale.US, "%.1f%s", points.last().tempDisplay, tempUnit)
                     Text(
                         text = "Temp ($endTempStr)",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = tempColor
+                        color = if (isOverheatedAbove45) overheatColor else tempColor
                     )
                 }
             }
@@ -317,6 +348,40 @@ fun SessionMetricsChart(
                     val battOffsets = points.map { Offset(getX(it.timestamp), getBatteryY(it.batteryPercent)) }
                     val tempOffsets = points.map { Offset(getX(it.timestamp), getTempY(it.tempDisplay)) }
 
+                    // Highlight Thermal Throttling / Overheating Zone if temperature climbed
+                    val peakPoint = points.maxByOrNull { it.tempCelsius }
+                    if (peakPoint != null && (isOverheatedAbove45 || isThrottled)) {
+                        val peakX = getX(peakPoint.timestamp)
+                        val peakY = getTempY(peakPoint.tempDisplay)
+
+                        // Vertical guide indicating throttling
+                        drawLine(
+                            color = if (isOverheatedAbove45) Color(0xFFDC2626).copy(alpha = 0.5f) else Color(0xFFF97316).copy(alpha = 0.4f),
+                            start = Offset(peakX, topPadding),
+                            end = Offset(peakX, topPadding + chartHeight),
+                            strokeWidth = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                        )
+
+                        // Callout label showing speed reduced
+                        val calloutPaint = android.graphics.Paint().apply {
+                            color = if (isOverheatedAbove45) android.graphics.Color.argb(240, 220, 38, 38) else android.graphics.Color.argb(220, 234, 88, 12)
+                            textSize = 8.5.sp.toPx()
+                            isAntiAlias = true
+                            isFakeBoldText = true
+                            textAlign = if (peakX > canvasWidth * 0.65f) android.graphics.Paint.Align.RIGHT else android.graphics.Paint.Align.LEFT
+                        }
+
+                        val calloutText = if (isOverheatedAbove45) "🔥 >45°C: Speed Throttled (-75%)" else "⚠️ Throttling: Speed Reduced (-45%)"
+                        val textX = if (peakX > canvasWidth * 0.65f) peakX - 6.dp.toPx() else peakX + 6.dp.toPx()
+                        drawContext.canvas.nativeCanvas.drawText(
+                            calloutText,
+                            textX,
+                            topPadding + 14.dp.toPx(),
+                            calloutPaint
+                        )
+                    }
+
                     // Draw Battery % Fill Gradient underneath curve
                     if (battOffsets.size >= 2) {
                         val fillPath = Path().apply {
@@ -373,7 +438,7 @@ fun SessionMetricsChart(
                         )
                     }
 
-                    // Draw Temperature Line with smooth horizontal warm gradient
+                    // Draw Temperature Line with smooth horizontal warm/red gradient
                     if (tempOffsets.size >= 2) {
                         val tempPath = Path().apply {
                             moveTo(tempOffsets.first().x, tempOffsets.first().y)
@@ -392,7 +457,7 @@ fun SessionMetricsChart(
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
                                     Color(0xFFF59E0B),
-                                    Color(0xFFF97316)
+                                    if (isOverheatedAbove45) Color(0xFFDC2626) else Color(0xFFF97316)
                                 )
                             ),
                             style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
@@ -419,9 +484,11 @@ fun SessionMetricsChart(
                     }
 
                     tempOffsets.forEachIndexed { index, offset ->
+                        val isOverheatNode = points.getOrNull(index)?.tempCelsius?.let { it >= 45.0f } ?: false
+                        val nodeColor = if (isOverheatNode) Color(0xFFDC2626) else tempColor
                         drawCircle(
-                            color = tempColor.copy(alpha = 0.22f),
-                            radius = 5.dp.toPx(),
+                            color = nodeColor.copy(alpha = if (isOverheatNode) 0.45f else 0.22f),
+                            radius = if (isOverheatNode) 7.5.dp.toPx() else 5.dp.toPx(),
                             center = offset
                         )
                         drawCircle(
@@ -430,7 +497,7 @@ fun SessionMetricsChart(
                             center = offset
                         )
                         drawCircle(
-                            color = tempColor,
+                            color = nodeColor,
                             radius = 2.dp.toPx(),
                             center = offset
                         )
@@ -466,6 +533,106 @@ fun SessionMetricsChart(
                         yTimePos,
                         timeLabelPaint
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Thermal Speed Throttling Explainer Panel: Shows how overheating reduces charging speed
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isOverheatedAbove45) Color(0xFFFEF2F2)
+                        else MaterialTheme.colorScheme.surface
+                    )
+                    .padding(12.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isOverheatedAbove45) Icons.Default.LocalFireDepartment else Icons.Default.Speed,
+                            contentDescription = null,
+                            tint = if (isOverheatedAbove45) Color(0xFFDC2626) else Color(0xFF22C55E),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "How Overheating Reduces Charging Speed",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (isOverheatedAbove45) Color(0xFF991B1B) else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = if (isOverheatedAbove45) {
+                            "🔥 Overheat Alert: When temperatures climb above 45°C, phone charging controllers cut current sharply (down ~75%) to protect battery cells from degradation. Notice the green charge curve flattening as temperature peaked."
+                        } else if (isThrottled) {
+                            "⚡ Thermal Taper: When temperatures rise above 39°C, charging controllers taper current intake to slow down heating. The green slope softens to protect battery longevity."
+                        } else {
+                            "🟢 Optimal Charging Speed: Temperatures stayed cool (well below 45°C limit) during this cycle, allowing uninterrupted fast charging without thermal speed throttling."
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.5.sp
+                        ),
+                        color = if (isOverheatedAbove45) Color(0xFF7F1D1D) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 3-Stage thermal speed breakdown bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF22C55E).copy(alpha = 0.12f))
+                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("<36°C Cool", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFF15803D))
+                                Text("100% Speed", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF16A34A))
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFF59E0B).copy(alpha = 0.12f))
+                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("38-44°C Hot", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB45309))
+                                Text("~55% Speed", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFD97706))
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFDC2626).copy(alpha = 0.12f))
+                                .padding(vertical = 5.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("≥45°C Overheat", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB91C1C))
+                                Text("~20% (Throttled)", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFDC2626))
+                            }
+                        }
+                    }
                 }
             }
         }
