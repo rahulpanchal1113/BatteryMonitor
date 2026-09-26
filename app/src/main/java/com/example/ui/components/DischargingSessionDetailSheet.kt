@@ -64,6 +64,7 @@ import com.example.data.local.BatteryEventEntity
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.AppDischargeConsumption
 import com.example.data.util.AppUsageTracker
+import com.example.data.util.DurationFormatter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -145,7 +146,7 @@ fun DischargingSessionDetailSheet(
         max(1L, (System.currentTimeMillis() - session.startTime) / 1000L)
     }
     val durationStr = remember(durationSeconds) {
-        formatDetailedDuration(durationSeconds)
+        DurationFormatter.formatHourMinutes(durationSeconds)
     }
 
     fun formatTemp(celsius: Float): String {
@@ -661,28 +662,9 @@ fun AppConsumptionRow(
     val fgColor = Color(0xFF0284C7) // Sky blue
     val bgColor = Color(0xFF8B5CF6) // Purple / background
 
-    val totalSecs = appItem.foregroundTimeMillis / 1000L
-    val fgHours = totalSecs / 3600L
-    val fgMinutes = (totalSecs % 3600L) / 60L
-    val fgSeconds = totalSecs % 60L
-    val timeLabel = when {
-        fgHours > 0 -> if (fgMinutes > 0) "${fgHours}h ${fgMinutes}m" else "${fgHours}h"
-        fgMinutes > 0 -> if (fgSeconds > 0) "${fgMinutes}m ${fgSeconds}s" else "${fgMinutes}m"
-        else -> "${max(1L, fgSeconds)}s"
-    }
-
+    val fgTimeLabel = DurationFormatter.formatMillisDuration(appItem.foregroundTimeMillis)
+    val bgTimeLabel = DurationFormatter.formatMillisDuration(appItem.backgroundTimeMillis)
     val fgFraction = (appItem.foregroundPercent / 100f).coerceIn(0.02f, 0.98f)
-
-    val peakTempDisplay = if (useFahrenheit) {
-        String.format(Locale.US, "%.1f°F", (appItem.peakTempCelsius * 9f / 5f) + 32f)
-    } else {
-        String.format(Locale.US, "%.1f°C", appItem.peakTempCelsius)
-    }
-    val avgTempDisplay = if (useFahrenheit) {
-        String.format(Locale.US, "%.1f°F", (appItem.avgTempCelsius * 9f / 5f) + 32f)
-    } else {
-        String.format(Locale.US, "%.1f°C", appItem.avgTempCelsius)
-    }
 
     Row(
         modifier = modifier
@@ -756,54 +738,21 @@ fun AppConsumptionRow(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Foreground vs Background Subtitle (sums to 100%)
+            // Foreground vs Background Subtitle (duration and percent split only)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Foreground: ${String.format(Locale.US, "%.0f%%", appItem.foregroundPercent)} ($timeLabel)",
+                    text = "Foreground: ${String.format(Locale.US, "%.0f%%", appItem.foregroundPercent)} ($fgTimeLabel)",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = fgColor
                 )
 
                 Text(
-                    text = "Background: ${String.format(Locale.US, "%.0f%%", appItem.backgroundPercent)}",
+                    text = "Background: ${String.format(Locale.US, "%.0f%%", appItem.backgroundPercent)} ($bgTimeLabel)",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = bgColor
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Peak and Average Temperature Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Thermostat,
-                    contentDescription = "Temperature",
-                    tint = if (appItem.peakTempCelsius >= 42f) Color(0xFFDC2626) else Color(0xFFF97316),
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(3.dp))
-                Text(
-                    text = "Peak: $peakTempDisplay",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                    color = if (appItem.peakTempCelsius >= 42f) Color(0xFFDC2626) else Color(0xFFEA580C)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "•",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Avg: $avgTempDisplay",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

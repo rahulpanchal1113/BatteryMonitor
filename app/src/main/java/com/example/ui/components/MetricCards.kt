@@ -448,16 +448,8 @@ fun BatteryMetricGrid(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Factory Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$designCap mAh (When New)", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                                }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Cycle Data Analyzed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$progress% / 100% equivalent cycle", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text("Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$designCap mAh", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                                 Row(
@@ -470,10 +462,10 @@ fun BatteryMetricGrid(
                             }
                         }
 
-                        // Helpful Instructions
+                        // Helpful Instructions (Naive explanation)
                         Text(
-                            text = "To measure your battery's true degraded health accurately relative to its original factory capacity, Battery Monitor analyzes live charging energy intake and on-battery discharge telemetry.\n\nData is recorded continuously as you use and charge your device. Once at least 1 full equivalent cycle (cumulative 100% level change, e.g. 50% charge + 50% discharge) is recorded, your stabilized absolute health percentage and usable mAh capacity will appear here automatically.",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                            text = "You need to wait 1–2 days of regular charging and discharging for the app to collect enough telemetry and calculate your battery health data.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
@@ -508,13 +500,13 @@ fun BatteryMetricGrid(
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(healthColor)
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    ) {
-                                        Text(
-                                            text = condition,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = Color.White
-                                        )
-                                    }
+                                ) {
+                                    Text(
+                                        text = condition,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
 
@@ -542,26 +534,8 @@ fun BatteryMetricGrid(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Factory Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$designCap mAh (When New)", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                                }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Capacity Degradation", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    val usable = estCap ?: (designCap * healthPercent / 100)
-                                    val lostMah = kotlin.math.max(0, designCap - usable)
-                                    Text("-$lostMah mAh (${100 - healthPercent}%)", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = if (lostMah > 300) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface)
-                                }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Total Equivalent Cycles", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(String.format(Locale.US, "%.1f cycles", cycles), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text("Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$designCap mAh", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                                 Row(
@@ -576,8 +550,8 @@ fun BatteryMetricGrid(
 
                         // Explanation Note
                         Text(
-                            text = "Calculated continuously from your device's actual charging energy intake and on-battery discharge cycles relative to original factory specifications.",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = "Calculated from your charging and discharging telemetry relative to your battery's rated capacity.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

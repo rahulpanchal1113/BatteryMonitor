@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.DailyDischargeStats
+import com.example.data.util.DurationFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,6 +65,7 @@ fun DailyDischargeTimeline(
     val dischargeColor = Color(0xFF0284C7)
     val cyanColor = Color(0xFF38BDF8)
     val sortedSessions = remember(sessions) { sessions.sortedBy { it.startTime } }
+    val latestSessionsFirst = remember(sessions) { sessions.sortedByDescending { it.startTime } }
 
     Card(
         modifier = modifier
@@ -361,10 +363,10 @@ fun DailyDischargeTimeline(
                                     // Time labels below this specific session
                                     val startFormatted = timeFormat.format(Date(session.startTime))
                                     val endFormatted = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Now"
-                                    val durationMins = max(1L, session.durationSeconds / 60)
+                                    val formattedDuration = DurationFormatter.formatHourMinutes(session.durationSeconds)
 
                                     val labelY = h - 6.dp.toPx()
-                                    val durationText = "${startLevel.toInt()}%→${safeEndLevel.toInt()}% ($durationMins m)"
+                                    val durationText = "${startLevel.toInt()}%→${safeEndLevel.toInt()}% ($formattedDuration)"
                                     val timeRangeText = "$startFormatted – $endFormatted"
 
                                     drawContext.canvas.nativeCanvas.drawText(
@@ -387,9 +389,9 @@ fun DailyDischargeTimeline(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Detailed discharging sessions list
+                // Detailed discharging sessions list (Latest on top)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    sortedSessions.forEach { session ->
+                    latestSessionsFirst.forEach { session ->
                         DischargeSessionItemRow(
                             session = session,
                             onClick = onSessionClick?.let { { it(session) } }
@@ -412,7 +414,7 @@ fun DischargeSessionItemRow(
     val endTimeStr = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Active"
     val safeEnd = session.endLevel
     val deltaPercent = max(0, session.startLevel - safeEnd)
-    val durationMinutes = session.durationSeconds / 60
+    val durationFormatted = DurationFormatter.formatHourMinutes(session.durationSeconds)
     val dischargeColor = Color(0xFF0284C7)
 
     Row(
@@ -450,7 +452,7 @@ fun DischargeSessionItemRow(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "On Battery • $durationMinutes mins",
+                    text = "On Battery • $durationFormatted",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

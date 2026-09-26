@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.ChargingSessionEntity
+import com.example.data.util.DurationFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,14 +57,7 @@ fun ChargingSessionCard(
     }
 
     val durationText = remember(durationSeconds) {
-        val hours = durationSeconds / 3600
-        val minutes = (durationSeconds % 3600) / 60
-        val secs = durationSeconds % 60
-        when {
-            hours > 0 -> "${hours}h ${minutes}m"
-            minutes > 0 -> "${minutes}m ${secs}s"
-            else -> "${secs}s"
-        }
+        DurationFormatter.formatHourMinutes(durationSeconds)
     }
 
     val safeEndLevel = max(session.startLevel, session.endLevel)

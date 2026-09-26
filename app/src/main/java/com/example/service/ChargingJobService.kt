@@ -13,17 +13,21 @@ import android.util.Log
 import com.example.BatteryApplication
 import com.example.receiver.ChargingAlarmScheduler
 import com.example.widget.BatteryWidgetProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class ChargingJobService : JobService() {
 
-    private val serviceJob = Job()
+    private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private var activeJobExecution: Job? = null
 
     override fun onStartJob(params: JobParameters?): Boolean {
         val app = applicationContext as? BatteryApplication ?: return false
@@ -37,7 +41,8 @@ class ChargingJobService : JobService() {
             acquire(15_000L)
         }
 
-        serviceScope.launch {
+        activeJobExecution?.cancel()
+        activeJobExecution = serviceScope.launch {
             try {
                 // Ensure repository records power connection and starts charging session
                 app.repository.onPowerConnected()
@@ -57,6 +62,24 @@ class ChargingJobService : JobService() {
                 } catch (_: Exception) {
                     // Handled gracefully when background execution constraints apply
                 }
+
+                // Periodic sampling loop while job remains active
+                while (isActive) {
+                    delay(30_000L)
+                    try {
+                        val status = app.repository.queryCurrentBatteryStatus()
+                        if (status.isCharging) {
+                            app.repository.logBatterySample()
+                            BatteryWidgetProvider.updateAllWidgets(applicationContext)
+                        } else {
+                            break
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {}
+                }
+            } catch (e: CancellationException) {
+                // Job cancelled normally when charger is disconnected or system re-evaluates constraints
             } catch (e: Exception) {
                 Log.e("ChargingJobService", "Error during onStartJob", e)
             } finally {
@@ -66,29 +89,17 @@ class ChargingJobService : JobService() {
                     }
                 } catch (_: Exception) {}
             }
-
-            // Periodic sampling loop while job remains active
-            while (isActive) {
-                delay(30_000L)
-                try {
-                    val status = app.repository.queryCurrentBatteryStatus()
-                    if (status.isCharging) {
-                        app.repository.logBatterySample()
-                        BatteryWidgetProvider.updateAllWidgets(applicationContext)
-                    } else {
-                        break
-                    }
-                } catch (_: Exception) {}
-            }
         }
+
         // Return true to indicate long-running job monitoring active charging
         return true
     }
 
     override fun onStopJob(params: JobParameters?): Boolean {
         // Invoked by Android OS when power is disconnected or charging constraint ends
-        val app = applicationContext as? BatteryApplication
+        activeJobExecution?.cancel()
 
+        val app = applicationContext as? BatteryApplication
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -98,10 +109,14 @@ class ChargingJobService : JobService() {
             acquire(15_000L)
         }
 
-        serviceScope.launch {
+        serviceScope.launch(NonCancellable) {
             try {
                 app?.repository?.onPowerDisconnected()
                 BatteryWidgetProvider.updateAllWidgets(applicationContext)
+            } catch (e: CancellationException) {
+                // Normal cancellation
+            } catch (e: Exception) {
+                Log.e("ChargingJobService", "Error during onStopJob", e)
             } finally {
                 ChargingAlarmScheduler.cancelCheckpoints(applicationContext)
                 ChargingAlarmScheduler.scheduleWidgetPeriodicRefresh(applicationContext, 15 * 60_000L)
@@ -113,9 +128,15 @@ class ChargingJobService : JobService() {
                 } catch (_: Exception) {}
             }
         }
-        serviceJob.cancel()
+
         // Reschedule to continuously monitor subsequent charging events
         return true
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activeJobExecution?.cancel()
+        serviceJob.cancel()
     }
 
     companion object {

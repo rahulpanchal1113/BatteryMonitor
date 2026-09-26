@@ -47,6 +47,7 @@ import com.example.data.local.ChargingSessionEntity
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.DailyBatteryStats
 import com.example.data.model.DailyDischargeStats
+import com.example.data.util.DurationFormatter
 import com.example.ui.BatteryViewModel
 import com.example.ui.HistoryTab
 import com.example.ui.components.ChargingSessionDetailSheet
@@ -270,10 +271,7 @@ fun DailyMetricsSummaryCard(
     useFahrenheit: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val durationMinutes = (stats?.totalChargeDurationSeconds ?: 0L) / 60
-    val hours = durationMinutes / 60
-    val remainingMins = durationMinutes % 60
-    val durationStr = if (hours > 0) "${hours}h ${remainingMins}m" else "${remainingMins}m"
+    val durationStr = DurationFormatter.formatHourMinutes(stats?.totalChargeDurationSeconds ?: 0L)
 
     val tempStr = if (stats != null && stats.avgTemperature > 0f) {
         if (useFahrenheit) {
@@ -345,10 +343,7 @@ fun DailyDischargeSummaryCard(
     useFahrenheit: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val durationMinutes = (stats?.totalDischargeDurationSeconds ?: 0L) / 60
-    val hours = durationMinutes / 60
-    val remainingMins = durationMinutes % 60
-    val durationStr = if (hours > 0) "${hours}h ${remainingMins}m" else "${remainingMins}m"
+    val durationStr = DurationFormatter.formatHourMinutes(stats?.totalDischargeDurationSeconds ?: 0L)
 
     val tempStr = if (stats != null && stats.avgTemperature > 0f) {
         if (useFahrenheit) {

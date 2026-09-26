@@ -1,9 +1,14 @@
 package com.example.data.repository
 
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.BatteryManager
+import android.os.PowerManager
+import android.provider.Settings
 import com.example.data.local.BatteryDao
 import com.example.data.local.BatteryEventEntity
 import com.example.data.local.ChargingSessionEntity
@@ -53,6 +58,7 @@ class BatteryRepository(
     private val powerLock = Mutex()
     private var lastPowerConnectedTime: Long = 0L
     private var lastPowerDisconnectedTime: Long = 0L
+    private var smoothedGrossWatts: Float = 0f
 
     val steadinessDetector = DeviceSteadinessDetector(context)
     val stabilityAnalyzer = ConnectionStabilityAnalyzer(context, steadinessDetector)
@@ -98,9 +104,16 @@ class BatteryRepository(
         }
     }
     val recentEvents: Flow<List<BatteryEventEntity>> = dao.getRecentEvents(100)
-    val availableDates: Flow<List<String>> = dao.getAvailableDates()
     val allDischargeSessions: Flow<List<DischargingSessionEntity>> = dao.getAllDischargeSessions()
-    val dischargeAvailableDates: Flow<List<String>> = dao.getDischargeAvailableDates()
+
+    val availableDates: Flow<List<String>> = combine(
+        dao.getAvailableDates(),
+        dao.getDischargeAvailableDates()
+    ) { chargeDates, dischargeDates ->
+        val today = formatDateKey(System.currentTimeMillis())
+        (chargeDates + dischargeDates + listOf(today)).distinct().sortedDescending()
+    }
+    val dischargeAvailableDates: Flow<List<String>> = availableDates
 
     val batteryHealthInfo: StateFlow<BatteryHealthInfo> = combine(
         dao.getAllSessions(),
@@ -181,26 +194,28 @@ class BatteryRepository(
             _liveBatteryStatus
         ) { list, liveStatus ->
             var activeEncountered = false
-            list.filter { it.isDisplayable }.map { rawSession ->
-                if (!rawSession.isCompleted) {
-                    if (liveStatus.isCharging) {
-                        rawSession.copy(
-                            isCompleted = true,
-                            endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
-                        )
-                    } else if (!activeEncountered) {
-                        activeEncountered = true
-                        rawSession
+            list.filter { it.isDisplayable }
+                .sortedByDescending { it.startTime }
+                .map { rawSession ->
+                    if (!rawSession.isCompleted) {
+                        if (liveStatus.isCharging) {
+                            rawSession.copy(
+                                isCompleted = true,
+                                endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
+                            )
+                        } else if (!activeEncountered) {
+                            activeEncountered = true
+                            rawSession
+                        } else {
+                            rawSession.copy(
+                                isCompleted = true,
+                                endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
+                            )
+                        }
                     } else {
-                        rawSession.copy(
-                            isCompleted = true,
-                            endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
-                        )
+                        rawSession
                     }
-                } else {
-                    rawSession
                 }
-            }
         }
     }
 
@@ -226,28 +241,30 @@ class BatteryRepository(
             _liveBatteryStatus
         ) { list, liveStatus ->
             var activeEncountered = false
-            list.filter { it.isDisplayable }.map { rawSession ->
-                val safeEndLevel = max(rawSession.startLevel, rawSession.endLevel)
-                val session = if (safeEndLevel != rawSession.endLevel) rawSession.copy(endLevel = safeEndLevel) else rawSession
-                if (!session.isCompleted) {
-                    if (!liveStatus.isCharging) {
-                        session.copy(
-                            isCompleted = true,
-                            endTime = session.endTime ?: (session.startTime + max(1L, session.durationSeconds) * 1000L)
-                        )
-                    } else if (!activeEncountered) {
-                        activeEncountered = true
-                        session
+            list.filter { it.isDisplayable }
+                .sortedByDescending { it.startTime }
+                .map { rawSession ->
+                    val safeEndLevel = max(rawSession.startLevel, rawSession.endLevel)
+                    val session = if (safeEndLevel != rawSession.endLevel) rawSession.copy(endLevel = safeEndLevel) else rawSession
+                    if (!session.isCompleted) {
+                        if (!liveStatus.isCharging) {
+                            session.copy(
+                                isCompleted = true,
+                                endTime = session.endTime ?: (session.startTime + max(1L, session.durationSeconds) * 1000L)
+                            )
+                        } else if (!activeEncountered) {
+                            activeEncountered = true
+                            session
+                        } else {
+                            session.copy(
+                                isCompleted = true,
+                                endTime = session.endTime ?: (session.startTime + max(1L, session.durationSeconds) * 1000L)
+                            )
+                        }
                     } else {
-                        session.copy(
-                            isCompleted = true,
-                            endTime = session.endTime ?: (session.startTime + max(1L, session.durationSeconds) * 1000L)
-                        )
+                        session
                     }
-                } else {
-                    session
                 }
-            }
         }
     }
 
@@ -383,57 +400,100 @@ class BatteryRepository(
 
         val voltageVolts = kotlin.math.max(3.0f, voltage / 1000f)
 
-        // 1. Net Chemical Power actually entering the battery cell
+        // 1. Net Chemical Power actually entering or leaving the battery cell
         val netWattageWatts = if (isCharging) {
-            voltageVolts * (currentMilliAmps / 1000f)
+            voltageVolts * (kotlin.math.max(0, currentMilliAmps) / 1000f)
         } else {
             0f
         }
 
-        // 2. Estimated Active Device Load (screen display, SoC/CPU, RAM & radio while phone is running)
-        val activeDeviceDrawWatts = if (isCharging) {
-            2.8f + ((voltageVolts - 3.7f).coerceIn(0f, 0.6f) * 0.5f)
+        // 2. Dynamic Real-Time Active Device Load (screen display, video/audio media decoding, SoC/CPU & radio)
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val isScreenInteractive = powerManager?.isInteractive ?: true
+
+        val brightness = try {
+            Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
+        } catch (_: Exception) {
+            128
+        }
+        val screenFraction = (brightness / 255f).coerceIn(0.1f, 1.0f)
+
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        var isMediaOrPipActive = audioManager?.isMusicActive == true || audioManager?.mode != AudioManager.MODE_NORMAL
+
+        if (!isMediaOrPipActive && AppUsageTracker.hasUsageStatsPermission(context)) {
+            try {
+                val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+                if (usageStatsManager != null) {
+                    val now = System.currentTimeMillis()
+                    val events = usageStatsManager.queryEvents(now - 60_000L, now)
+                    val event = UsageEvents.Event()
+                    while (events.hasNextEvent()) {
+                        events.getNextEvent(event)
+                        val pkg = event.packageName.lowercase()
+                        if (pkg.contains("youtube") || pkg.contains("netflix") || pkg.contains("twitch") ||
+                            pkg.contains("tiktok") || pkg.contains("vimeo") || pkg.contains("spotify") ||
+                            pkg.contains("camera") || pkg.contains("video")) {
+                            isMediaOrPipActive = true
+                            break
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val baseStandbyWatts = 0.65f // Base SoC, modem standby, cellular/WiFi radio, RAM
+        val screenDrawWatts = if (isScreenInteractive) {
+            0.70f + (screenFraction * 1.60f) // Screen OLED/LCD: 0.86W at low brightness to 2.30W at max brightness
         } else {
-            0f
+            0.0f
+        }
+        val mediaPiPWatts = if (isMediaOrPipActive) 1.85f else 0.0f // Video decoding / audio / YouTube PiP hardware draw
+
+        val activeDeviceDrawWatts = if (isCharging) {
+            baseStandbyWatts + screenDrawWatts + mediaPiPWatts
+        } else {
+            if (currentMilliAmps < 0) {
+                voltageVolts * (kotlin.math.abs(currentMilliAmps) / 1000f)
+            } else {
+                baseStandbyWatts + screenDrawWatts + mediaPiPWatts
+            }
         }
 
         // 3. Estimated Gross Wattage: Calculated automatically from real-time electrical telemetry
-        // and PMIC buck/boost conversion efficiency (~88%) without requiring user adapter profile selection
+        // with exponential smoothing to eliminate erratic jumps and deliver stable wattage readings
         val (grossWattageWatts, speedType) = if (isCharging) {
-            when (plugged) {
-                BatteryManager.BATTERY_PLUGGED_AC -> {
-                    val internalDraw = netWattageWatts + activeDeviceDrawWatts
-                    val baseGross = internalDraw / 0.88f
-                    val estimatedGross = when {
-                        netWattageWatts >= 14f -> kotlin.math.max(baseGross, 25.0f)
-                        netWattageWatts >= 8f -> kotlin.math.max(baseGross, 15.0f)
-                        else -> baseGross.coerceAtLeast(5.0f)
-                    }
-                    val roundedGross = (kotlin.math.round(estimatedGross * 10f) / 10f)
-                    val label = when {
-                        roundedGross >= 35f -> "Super Fast 2.0"
-                        roundedGross >= 20f -> "Super Fast Charging"
-                        roundedGross >= 12f -> "Fast Charging"
-                        else -> "Standard AC"
-                    }
-                    Pair(roundedGross, label)
-                }
-                BatteryManager.BATTERY_PLUGGED_USB -> {
-                    val usbDraw = ((netWattageWatts + activeDeviceDrawWatts) / 0.85f).coerceIn(2.5f, 15.0f)
-                    val roundedUsb = (kotlin.math.round(usbDraw * 10f) / 10f)
-                    val label = if (roundedUsb >= 7.5f) "USB Fast / QC" else "Standard USB Port"
-                    Pair(roundedUsb, label)
-                }
-                BatteryManager.BATTERY_PLUGGED_WIRELESS -> {
-                    val wirelessDraw = ((netWattageWatts + activeDeviceDrawWatts) / 0.72f).coerceIn(5.0f, 15.0f)
-                    Pair(kotlin.math.round(wirelessDraw * 10f) / 10f, "Fast Wireless")
-                }
-                else -> {
-                    val genericGross = (netWattageWatts + activeDeviceDrawWatts) / 0.88f
-                    Pair(kotlin.math.round(genericGross * 10f) / 10f, "Standard AC")
-                }
+            val totalInternalDemand = netWattageWatts + activeDeviceDrawWatts
+            val rawGross = when (plugged) {
+                BatteryManager.BATTERY_PLUGGED_AC -> (totalInternalDemand / 0.89f).coerceAtLeast(3.0f)
+                BatteryManager.BATTERY_PLUGGED_USB -> (totalInternalDemand / 0.85f).coerceIn(2.0f, 15.0f)
+                BatteryManager.BATTERY_PLUGGED_WIRELESS -> (totalInternalDemand / 0.72f).coerceIn(4.0f, 15.0f)
+                else -> (totalInternalDemand / 0.89f).coerceAtLeast(3.0f)
             }
+
+            val stableGross = if (smoothedGrossWatts <= 0f) {
+                rawGross
+            } else {
+                // Exponential moving average filter (75% previous, 25% new) to stabilize readings
+                (smoothedGrossWatts * 0.75f) + (rawGross * 0.25f)
+            }
+            smoothedGrossWatts = stableGross
+            val roundedGross = (kotlin.math.round(stableGross * 10f) / 10f).coerceAtLeast(2.5f)
+
+            val label = when (plugged) {
+                BatteryManager.BATTERY_PLUGGED_AC -> when {
+                    roundedGross >= 35f -> "Super Fast 2.0"
+                    roundedGross >= 20f -> "Super Fast Charging"
+                    roundedGross >= 12f -> "Fast Charging"
+                    else -> "Standard AC"
+                }
+                BatteryManager.BATTERY_PLUGGED_USB -> if (roundedGross >= 7.5f) "USB Fast / QC" else "Standard USB Port"
+                BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Fast Wireless"
+                else -> "Standard AC"
+            }
+            Pair(roundedGross, label)
         } else {
+            smoothedGrossWatts = 0f
             Pair(0f, "Discharging")
         }
 

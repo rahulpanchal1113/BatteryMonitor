@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.ChargingSessionEntity
 import com.example.data.model.DailyBatteryStats
+import com.example.data.util.DurationFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,6 +65,7 @@ fun DailyChargeChart(
     val emeraldColor = Color(0xFF22C55E)
     val tealColor = Color(0xFF10B981)
     val sortedSessions = remember(sessions) { sessions.sortedBy { it.startTime } }
+    val latestSessionsFirst = remember(sessions) { sessions.sortedByDescending { it.startTime } }
 
     Card(
         modifier = modifier
@@ -361,10 +363,10 @@ fun DailyChargeChart(
                                     // Time labels below this specific session
                                     val startFormatted = timeFormat.format(Date(session.startTime))
                                     val endFormatted = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Now"
-                                    val durationMins = max(1L, session.durationSeconds / 60)
+                                    val formattedDuration = DurationFormatter.formatHourMinutes(session.durationSeconds)
 
                                     val labelY = h - 6.dp.toPx()
-                                    val durationText = "${session.startLevel}%→${safeEndLevel.toInt()}% ($durationMins m)"
+                                    val durationText = "${session.startLevel}%→${safeEndLevel.toInt()}% ($formattedDuration)"
                                     val timeRangeText = "$startFormatted – $endFormatted"
 
                                     drawContext.canvas.nativeCanvas.drawText(
@@ -387,9 +389,9 @@ fun DailyChargeChart(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Detailed sessions list
+                // Detailed sessions list (Latest on top)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    sortedSessions.forEach { session ->
+                    latestSessionsFirst.forEach { session ->
                         SessionItemRow(
                             session = session,
                             onClick = onSessionClick?.let { { it(session) } }
@@ -412,7 +414,7 @@ fun SessionItemRow(
     val endTimeStr = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Active"
     val safeEnd = max(session.startLevel, session.endLevel)
     val deltaPercent = max(0, safeEnd - session.startLevel)
-    val durationMinutes = session.durationSeconds / 60
+    val durationFormatted = DurationFormatter.formatHourMinutes(session.durationSeconds)
 
     Row(
         modifier = modifier
@@ -449,7 +451,7 @@ fun SessionItemRow(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "${session.plugType} • $durationMinutes mins",
+                    text = "${session.plugType} • $durationFormatted",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.BatteryEventEntity
 import com.example.data.local.ChargingSessionEntity
+import com.example.data.util.DurationFormatter
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -89,7 +90,7 @@ fun ChargingSessionDetailSheet(
         max(1L, (System.currentTimeMillis() - session.startTime) / 1000L)
     }
     val durationStr = remember(durationSeconds) {
-        formatDetailedDuration(durationSeconds)
+        DurationFormatter.formatHourMinutes(durationSeconds)
     }
 
     // Temperature formatting
