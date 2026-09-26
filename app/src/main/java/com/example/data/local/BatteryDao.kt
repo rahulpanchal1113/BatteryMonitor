@@ -45,7 +45,7 @@ interface BatteryDao {
     @Query("SELECT * FROM charging_sessions ORDER BY startTime DESC")
     fun getAllSessions(): Flow<List<ChargingSessionEntity>>
 
-    @Query("SELECT * FROM charging_sessions WHERE dateKey = :dateKey ORDER BY startTime DESC")
+    @Query("SELECT * FROM charging_sessions WHERE dateKey = :dateKey OR isCompleted = 0 ORDER BY startTime DESC")
     fun getSessionsForDate(dateKey: String): Flow<List<ChargingSessionEntity>>
 
     @Query("SELECT DISTINCT dateKey FROM charging_sessions ORDER BY dateKey DESC")
@@ -88,7 +88,7 @@ interface BatteryDao {
     @Query("SELECT * FROM discharging_sessions ORDER BY startTime DESC")
     fun getAllDischargeSessions(): Flow<List<DischargingSessionEntity>>
 
-    @Query("SELECT * FROM discharging_sessions WHERE dateKey = :dateKey ORDER BY startTime DESC")
+    @Query("SELECT * FROM discharging_sessions WHERE dateKey = :dateKey OR isCompleted = 0 ORDER BY startTime DESC")
     fun getDischargeSessionsForDate(dateKey: String): Flow<List<DischargingSessionEntity>>
 
     @Query("SELECT DISTINCT dateKey FROM discharging_sessions ORDER BY dateKey DESC")

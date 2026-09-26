@@ -10,6 +10,8 @@ data class AppBackgroundBatteryUsage(
     val activeMonitoringHours: Float = 14.2f,
     val efficiencyRating: String = "Ultra-Low Drain (<0.2%/day)",
     val statusDescription: String = "Passive battery receiver consumes negligible power.",
-    val relatableComparisonExample: String = "Equivalent to unlocking your phone 5 times."
+    val relatableComparisonExample: String = "Equivalent to unlocking your phone 5 times.",
+    val hasUsagePermission: Boolean = true,
+    val backgroundDurationMillis: Long = 0L
 )
 

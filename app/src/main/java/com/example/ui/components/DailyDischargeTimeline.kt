@@ -361,9 +361,11 @@ fun DailyDischargeTimeline(
                                     )
 
                                     // Time labels below this specific session
+                                    val isOngoing = !session.isCompleted && session.endTime == null
                                     val startFormatted = timeFormat.format(Date(session.startTime))
                                     val endFormatted = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Now"
-                                    val formattedDuration = DurationFormatter.formatHourMinutes(session.durationSeconds)
+                                    val effectiveDuration = if (isOngoing) max(session.durationSeconds, (System.currentTimeMillis() - session.startTime) / 1000L) else session.durationSeconds
+                                    val formattedDuration = DurationFormatter.formatHourMinutes(effectiveDuration)
 
                                     val labelY = h - 6.dp.toPx()
                                     val durationText = "${startLevel.toInt()}%→${safeEndLevel.toInt()}% ($formattedDuration)"
@@ -414,7 +416,9 @@ fun DischargeSessionItemRow(
     val endTimeStr = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Active"
     val safeEnd = session.endLevel
     val deltaPercent = max(0, session.startLevel - safeEnd)
-    val durationFormatted = DurationFormatter.formatHourMinutes(session.durationSeconds)
+    val isOngoing = !session.isCompleted && session.endTime == null
+    val effectiveDuration = if (isOngoing) max(session.durationSeconds, (System.currentTimeMillis() - session.startTime) / 1000L) else session.durationSeconds
+    val durationFormatted = DurationFormatter.formatHourMinutes(effectiveDuration)
     val dischargeColor = Color(0xFF0284C7)
 
     Row(

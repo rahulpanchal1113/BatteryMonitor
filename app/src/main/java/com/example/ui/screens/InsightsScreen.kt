@@ -22,29 +22,42 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AppBackgroundBatteryUsage
 import com.example.data.model.ChargingInsightSummary
+import com.example.data.util.AppUsageTracker
+import com.example.data.util.DurationFormatter
 import com.example.ui.BatteryViewModel
 import com.example.ui.components.ChargeSpeedInsightChart
 import com.example.ui.components.ThermalInsightChart
@@ -505,6 +518,22 @@ fun AppBackgroundBatteryImpactCard(
     usage: AppBackgroundBatteryUsage,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var hasUsagePerm by remember { mutableStateOf(AppUsageTracker.hasUsageStatsPermission(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasUsagePerm = AppUsageTracker.hasUsageStatsPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -541,10 +570,79 @@ fun AppBackgroundBatteryImpactCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = usage.efficiencyRating.ifEmpty { "Throttled passive listener • Negligible drain" },
+                        text = if (hasUsagePerm) usage.efficiencyRating.ifEmpty { "Measured passive telemetry • Zero idle drag" }
+                        else "Usage permission required for exact tracking",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            if (!hasUsagePerm) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Security Permission",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Usage Access Permission Required",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Text(
+                            text = "To measure exact foreground and background battery impact from actual system telemetry, Android requires Usage Access permission.\n\nAll metrics are processed 100% locally on device.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp, lineHeight = 16.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Button(
+                            onClick = {
+                                try {
+                                    context.startActivity(AppUsageTracker.getUsageAccessSettingsIntent())
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("grant_usage_access_insights_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Grant Usage Access in Settings", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
 
@@ -587,7 +685,11 @@ fun AppBackgroundBatteryImpactCard(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Used by app today",
+                            text = if (usage.backgroundDurationMillis > 0L) {
+                                "Active ~${DurationFormatter.formatMillisDuration(usage.backgroundDurationMillis)}"
+                            } else {
+                                "Used by app today"
+                            },
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

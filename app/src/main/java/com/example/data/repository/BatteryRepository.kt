@@ -193,19 +193,33 @@ class BatteryRepository(
             dao.getDischargeSessionsForDate(dateKey),
             _liveBatteryStatus
         ) { list, liveStatus ->
+            val now = System.currentTimeMillis()
             var activeEncountered = false
             list.filter { it.isDisplayable }
                 .sortedByDescending { it.startTime }
                 .map { rawSession ->
-                    if (!rawSession.isCompleted) {
+                    val isSessionActive = !rawSession.isCompleted && rawSession.endTime == null
+                    if (isSessionActive) {
                         if (liveStatus.isCharging) {
+                            val dur = max(1L, (now - rawSession.startTime) / 1000L)
                             rawSession.copy(
                                 isCompleted = true,
-                                endTime = rawSession.endTime ?: (rawSession.startTime + max(1L, rawSession.durationSeconds) * 1000L)
+                                endTime = now,
+                                durationSeconds = dur
                             )
                         } else if (!activeEncountered) {
                             activeEncountered = true
-                            rawSession
+                            val dynamicDurationSecs = max(1L, (now - rawSession.startTime) / 1000L)
+                            val dynamicEndLevel = if (liveStatus.level > 0) liveStatus.level else rawSession.endLevel
+                            val drain = max(0, rawSession.startLevel - dynamicEndLevel)
+                            val speed = if (dynamicDurationSecs > 180L) (drain.toFloat() / (dynamicDurationSecs / 3600f)) else 0f
+                            rawSession.copy(
+                                durationSeconds = dynamicDurationSecs,
+                                endLevel = dynamicEndLevel,
+                                drainSpeedPercentPerHour = speed,
+                                maxTemp = max(rawSession.maxTemp, liveStatus.tempCelsius),
+                                avgTemp = if (rawSession.avgTemp > 0f) (rawSession.avgTemp * 0.8f + liveStatus.tempCelsius * 0.2f) else liveStatus.tempCelsius
+                            )
                         } else {
                             rawSession.copy(
                                 isCompleted = true,
@@ -240,21 +254,32 @@ class BatteryRepository(
             dao.getSessionsForDate(dateKey),
             _liveBatteryStatus
         ) { list, liveStatus ->
+            val now = System.currentTimeMillis()
             var activeEncountered = false
             list.filter { it.isDisplayable }
                 .sortedByDescending { it.startTime }
                 .map { rawSession ->
                     val safeEndLevel = max(rawSession.startLevel, rawSession.endLevel)
                     val session = if (safeEndLevel != rawSession.endLevel) rawSession.copy(endLevel = safeEndLevel) else rawSession
-                    if (!session.isCompleted) {
+                    val isSessionActive = !session.isCompleted && session.endTime == null
+                    if (isSessionActive) {
                         if (!liveStatus.isCharging) {
+                            val dur = max(1L, (now - session.startTime) / 1000L)
                             session.copy(
                                 isCompleted = true,
-                                endTime = session.endTime ?: (session.startTime + max(1L, session.durationSeconds) * 1000L)
+                                endTime = now,
+                                durationSeconds = dur
                             )
                         } else if (!activeEncountered) {
                             activeEncountered = true
-                            session
+                            val dynamicDurationSecs = max(1L, (now - session.startTime) / 1000L)
+                            val dynamicEndLevel = max(session.startLevel, if (liveStatus.level > 0) liveStatus.level else session.endLevel)
+                            session.copy(
+                                durationSeconds = dynamicDurationSecs,
+                                endLevel = dynamicEndLevel,
+                                maxTemp = max(session.maxTemp, liveStatus.tempCelsius),
+                                avgTemp = if (session.avgTemp > 0f) (session.avgTemp * 0.8f + liveStatus.tempCelsius * 0.2f) else liveStatus.tempCelsius
+                            )
                         } else {
                             session.copy(
                                 isCompleted = true,
@@ -591,21 +616,59 @@ class BatteryRepository(
         val rawCpuSec = if (savedDate == today) usagePrefs.getFloat("today_cpu_sec", 3.2f) else 3.2f
         val cpuSec = rawCpuSec.coerceAtLeast(0.5f)
 
-        // Scientific energy calculation for Android background task:
-        // Benchmark mobile battery: 5,000 mAh
-        // Little core CPU draw during active task: ~180 mA
-        // Wakeup lock / broadcast overhead: ~0.00035 mAh per checkpoint
+        val hasPerm = AppUsageTracker.hasUsageStatsPermission(context)
+        var measuredBgDrainPercent: Float? = null
+        var measuredBgDurationMs: Long = (checks * 4500L).coerceAtLeast(30_000L)
+
+        if (hasPerm) {
+            try {
+                val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
+                if (usageStatsManager != null) {
+                    val cal = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        set(java.util.Calendar.MINUTE, 0)
+                        set(java.util.Calendar.SECOND, 0)
+                        set(java.util.Calendar.MILLISECOND, 0)
+                    }
+                    val startOfDay = cal.timeInMillis
+                    val now = System.currentTimeMillis()
+                    val statsList = usageStatsManager.queryUsageStats(
+                        android.app.usage.UsageStatsManager.INTERVAL_BEST,
+                        startOfDay,
+                        now
+                    ) ?: emptyList()
+
+                    val myStats = statsList.filter { it.packageName == context.packageName }
+                    val fgTimeMillis = myStats.sumOf { it.totalTimeInForeground }
+                    val (fgRate, bgRate) = AppUsageTracker.getAppDrainRatePerHour(context.packageName, "Battery Monitor")
+                    val fgHours = fgTimeMillis / 3600000.0
+                    val bgHours = measuredBgDurationMs / 3600000.0
+                    val fgPower = fgHours * fgRate
+                    val bgPower = bgHours * bgRate
+                    val totalAppPower = fgPower + bgPower
+
+                    if (totalAppPower > 0.0) {
+                        val bgShare = bgPower / totalAppPower
+                        val rawBgDrain = (totalAppPower * bgShare).toFloat()
+                        measuredBgDrainPercent = rawBgDrain.coerceIn(0.02f, 2.5f)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Scientific energy calculation for Android background task (or measured value from UsageStats):
         val cpuEnergyMah = (cpuSec / 3600f) * 180f
         val wakeupEnergyMah = checks * 0.00035f
-        val totalMah = cpuEnergyMah + wakeupEnergyMah
-
+        val calculatedMah = cpuEnergyMah + wakeupEnergyMah
         val standardBatteryCapacityMah = 5000f
-        val drainPercent = ((totalMah / standardBatteryCapacityMah) * 100f).coerceIn(0.02f, 0.35f)
+
+        val drainPercent = measuredBgDrainPercent ?: ((calculatedMah / standardBatteryCapacityMah) * 100f).coerceIn(0.02f, 0.45f)
         val roundedPercent = (kotlin.math.round(drainPercent * 100f) / 100f).toFloat()
+        val totalMah = (roundedPercent / 100f) * standardBatteryCapacityMah
         val roundedMah = (kotlin.math.round(totalMah * 10f) / 10f).toFloat()
 
         // 7-day rolling average per day
-        val avg7Days = (kotlin.math.round((drainPercent * 0.96f).coerceIn(0.07f, 0.18f) * 100f) / 100f).toFloat()
+        val avg7Days = (kotlin.math.round((drainPercent * 0.96f).coerceIn(0.04f, 0.35f) * 100f) / 100f).toFloat()
 
         // Realistic dynamic comparison descriptions based on actual measured battery drain
         val dayHash = (today.hashCode() and 0x7FFFFFFF)
@@ -660,7 +723,9 @@ class BatteryRepository(
             activeMonitoringHours = (kotlin.math.round(activeHours * 10f) / 10f).toFloat(),
             efficiencyRating = dynamicEfficiencyRating,
             statusDescription = dynamicStatus,
-            relatableComparisonExample = selectedExample
+            relatableComparisonExample = selectedExample,
+            hasUsagePermission = hasPerm,
+            backgroundDurationMillis = measuredBgDurationMs
         )
     }
 
@@ -995,7 +1060,10 @@ class BatteryRepository(
 
     suspend fun getDailyDischargeStats(dateKey: String): DailyDischargeStats = withContext(Dispatchers.IO) {
         val sessions = dao.getDischargeSessionsForDate(dateKey).first()
-        val totalSecs = sessions.sumOf { it.durationSeconds }
+        val now = System.currentTimeMillis()
+        val totalSecs = sessions.sumOf {
+            if (!it.isCompleted) max(it.durationSeconds, (now - it.startTime) / 1000L) else it.durationSeconds
+        }
         val totalDrained = sessions.sumOf { max(0, it.startLevel - it.endLevel) }
         val avgTemp = if (sessions.isNotEmpty()) {
             sessions.map { it.avgTemp }.average().toFloat()
@@ -1022,7 +1090,10 @@ class BatteryRepository(
 
     suspend fun getDailyStats(dateKey: String): DailyBatteryStats = withContext(Dispatchers.IO) {
         val sessions = dao.getSessionsForDate(dateKey).first()
-        val totalSecs = sessions.sumOf { it.durationSeconds }
+        val now = System.currentTimeMillis()
+        val totalSecs = sessions.sumOf {
+            if (!it.isCompleted) max(it.durationSeconds, (now - it.startTime) / 1000L) else it.durationSeconds
+        }
         val totalGained = sessions.sumOf { max(0, it.endLevel - it.startLevel) }
         val avgTemp = if (sessions.isNotEmpty()) {
             sessions.map { it.avgTemp }.average().toFloat()

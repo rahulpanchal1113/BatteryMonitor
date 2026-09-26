@@ -738,22 +738,50 @@ fun AppConsumptionRow(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Foreground vs Background Subtitle (duration and percent split only)
+            // Foreground vs Background Subtitle (Realigned left & right in two lines: labels on top, percent & duration below)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "Foreground: ${String.format(Locale.US, "%.0f%%", appItem.foregroundPercent)} ($fgTimeLabel)",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = fgColor
-                )
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text(
+                        text = "Foreground",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = fgColor
+                    )
+                    Spacer(modifier = Modifier.height(1.dp))
+                    Text(
+                        text = "${String.format(Locale.US, "%.0f%%", appItem.foregroundPercent)} ($fgTimeLabel)",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-                Text(
-                    text = "Background: ${String.format(Locale.US, "%.0f%%", appItem.backgroundPercent)} ($bgTimeLabel)",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = bgColor
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Background",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = bgColor
+                    )
+                    Spacer(modifier = Modifier.height(1.dp))
+                    Text(
+                        text = "${String.format(Locale.US, "%.0f%%", appItem.backgroundPercent)} ($bgTimeLabel)",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

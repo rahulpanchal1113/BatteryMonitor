@@ -124,6 +124,8 @@ class BatteryViewModel(
         viewModelScope.launch {
             while (true) {
                 repository.updateLiveStatus()
+                loadDailyStats(_selectedDate.value)
+                loadDailyDischargeStats(_selectedDate.value)
                 kotlinx.coroutines.delay(2000L)
             }
         }
