@@ -5,6 +5,7 @@ import android.os.BatteryManager
 import com.example.data.local.ChargingSessionEntity
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.BatteryHealthInfo
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -14,7 +15,9 @@ object BatteryHealthCalculator {
 
     private const val PREFS_NAME = "battery_health_prefs"
     private const val KEY_CACHED_DESIGN_CAPACITY = "cached_design_capacity_mah"
+    private const val KEY_SMOOTHED_CAPACITY = "smoothed_capacity_mah"
     private const val DEFAULT_CAPACITY_MAH = 5000
+    private const val REQUIRED_CUMULATIVE_DELTA = 100 // 100% total equivalent cycle (e.g. 50% + 50%)
 
     /**
      * Resolves the factory rated design capacity (when the phone was brand new) in mAh.
@@ -61,7 +64,11 @@ object BatteryHealthCalculator {
 
     /**
      * Estimates battery health dynamically from empirical charging and discharging session data.
-     * Returns isCalibrated = false until sufficient charging/discharging data has been collected.
+     * Requires at least 1 full equivalent cycle (cumulative 100% level change across valid charging & discharging sessions)
+     * before graduating from the "Calibrating" progress bar state.
+     *
+     * Uses heavy exponential moving damping so health values do not jump or oscillate, and applies ceil()
+     * to the final percentage to provide a safe measurement margin.
      */
     fun calculateHealth(
         context: Context,
@@ -69,15 +76,16 @@ object BatteryHealthCalculator {
         dischargingSessions: List<DischargingSessionEntity>
     ): BatteryHealthInfo {
         val designCapacity = getDesignCapacityMah(context)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        // Filter valid charging sessions (at least 8% gain and 2 minutes duration)
+        // Filter valid charging sessions (at least 6% gain and 100 seconds duration)
         val validCharges = chargingSessions.filter {
-            it.isCompleted && (it.endLevel - it.startLevel) >= 8 && it.durationSeconds >= 120
+            it.isCompleted && (it.endLevel - it.startLevel) >= 6 && it.durationSeconds >= 100
         }
 
-        // Filter valid discharging sessions (at least 8% drain and 5 minutes duration)
+        // Filter valid discharging sessions (at least 6% drain and 180 seconds duration)
         val validDischarges = dischargingSessions.filter {
-            it.isCompleted && (it.startLevel - it.endLevel) >= 8 && it.durationSeconds >= 300
+            it.isCompleted && (it.startLevel - it.endLevel) >= 6 && it.durationSeconds >= 180
         }
 
         val totalChargedDelta = validCharges.sumOf { max(0, it.endLevel - it.startLevel) }
@@ -85,13 +93,8 @@ object BatteryHealthCalculator {
         val totalDeltaAnalyzed = totalChargedDelta + totalDrainedDelta
         val totalSessionsCount = validCharges.size + validDischarges.size
 
-        // We require at least 2 valid sessions AND cumulative >= 30% level change to calibrate accurately
-        val isCalibrated = (totalSessionsCount >= 2 && totalDeltaAnalyzed >= 30) || (totalSessionsCount >= 1 && totalDeltaAnalyzed >= 50)
-        val progressPercent = if (isCalibrated) 100 else ((totalDeltaAnalyzed / 35.0f) * 100f).roundToInt().coerceIn(0, 95)
-
-        val totalAllCharged = chargingSessions.sumOf { max(0, it.endLevel - it.startLevel) }
-        val totalAllDrained = dischargingSessions.sumOf { max(0, it.startLevel - it.endLevel) }
-        val totalEquivalentCycles = (totalAllCharged + totalAllDrained) / 200f
+        // Total equivalent cycles completed (e.g. 100% delta = 1.0 cycle)
+        val totalEquivalentCycles = totalDeltaAnalyzed / 100f
 
         val avgTemp = if (chargingSessions.isNotEmpty() || dischargingSessions.isNotEmpty()) {
             val allTemps = chargingSessions.map { it.avgTemp } + dischargingSessions.map { it.avgTemp }
@@ -99,6 +102,10 @@ object BatteryHealthCalculator {
         } else {
             31.5f
         }
+
+        // Progress towards completing 1 full 100% equivalent cycle (0% to 100%)
+        val isCalibrated = totalDeltaAnalyzed >= REQUIRED_CUMULATIVE_DELTA
+        val progressPercent = if (isCalibrated) 100 else ((totalDeltaAnalyzed.toFloat() / REQUIRED_CUMULATIVE_DELTA.toFloat()) * 100f).roundToInt().coerceIn(0, 99)
 
         if (!isCalibrated) {
             return BatteryHealthInfo(
@@ -108,45 +115,48 @@ object BatteryHealthCalculator {
                 conditionLabel = "Calibrating",
                 totalCyclesCount = (totalEquivalentCycles * 10f).roundToInt() / 10f,
                 totalSessionsAnalyzed = totalSessionsCount,
-                minSessionsRequired = 2,
+                minSessionsRequired = 1,
                 avgOperatingTempCelsius = avgTemp,
                 isCalibrated = false,
                 progressPercent = progressPercent
             )
         }
 
+        // Calculate weighted capacity from charging and discharging telemetry
         var weightedCapacitySum = 0.0
         var totalWeight = 0.0
 
-        // Process charging sessions
+        // 1. Process charging sessions
         for (session in validCharges) {
             val deltaLevel = max(1, session.endLevel - session.startLevel).toFloat()
-            val durHours = max(0.04f, session.durationSeconds / 3600f)
+            val durHours = max(0.03f, session.durationSeconds / 3600f)
 
-            // Net current drawn into battery
+            // Net current delivered into battery
             val estimatedCurrentMa = when {
                 session.plugType.contains("Wireless", ignoreCase = true) -> 1100f
                 session.plugType.contains("USB", ignoreCase = true) -> 850f
                 else -> {
                     val speed = session.peakSpeedPercentPerHour
-                    if (speed > 45f) 2500f else if (speed > 25f) 1900f else 1500f
+                    if (speed > 45f) 2400f else if (speed > 25f) 1850f else 1450f
                 }
             }
 
             val deliveredMah = estimatedCurrentMa * durHours
             val capacityFromSession = (deliveredMah / (deltaLevel / 100f)).toDouble()
 
-            if (capacityFromSession in (designCapacity * 0.45)..(designCapacity * 1.15)) {
-                val weight = (deltaLevel / 10f).toDouble().pow(2.0)
+            // Filter plausible boundaries
+            if (capacityFromSession in (designCapacity * 0.5)..(designCapacity * 1.15)) {
+                // Quadratic weighting: Larger cycles (e.g. 50%) have dramatically higher confidence
+                val weight = (deltaLevel / 10f).toDouble().pow(2.2)
                 weightedCapacitySum += capacityFromSession * weight
                 totalWeight += weight
             }
         }
 
-        // Process discharging sessions
+        // 2. Process discharging sessions
         for (session in validDischarges) {
             val deltaLevel = max(1, session.startLevel - session.endLevel).toFloat()
-            val durHours = max(0.08f, session.durationSeconds / 3600f)
+            val durHours = max(0.05f, session.durationSeconds / 3600f)
 
             val drainSpeed = if (session.drainSpeedPercentPerHour > 0f) {
                 session.drainSpeedPercentPerHour
@@ -155,39 +165,61 @@ object BatteryHealthCalculator {
             }
 
             val estimatedDrainCurrentMa = when {
-                drainSpeed > 22f -> 620f
-                drainSpeed > 14f -> 440f
-                else -> 280f
+                drainSpeed > 22f -> 600f
+                drainSpeed > 14f -> 430f
+                else -> 270f
             }
 
             val drawnMah = estimatedDrainCurrentMa * durHours
             val capacityFromSession = (drawnMah / (deltaLevel / 100f)).toDouble()
 
-            if (capacityFromSession in (designCapacity * 0.45)..(designCapacity * 1.15)) {
-                val weight = (deltaLevel / 10f).toDouble().pow(2.0)
+            if (capacityFromSession in (designCapacity * 0.5)..(designCapacity * 1.15)) {
+                val weight = (deltaLevel / 10f).toDouble().pow(2.2)
                 weightedCapacitySum += capacityFromSession * weight
                 totalWeight += weight
             }
         }
 
+        // Wear modeling adjustments
         val hotCharges = chargingSessions.count { it.maxTemp >= 40f }
         val hotDischarges = dischargingSessions.count { it.maxTemp >= 40f }
-        val thermalWearPenalty = (hotCharges + hotDischarges) * 0.08f
-        val cycleWearPenalty = (totalEquivalentCycles * 0.05f).coerceAtMost(20f)
+        val thermalWearPenalty = (hotCharges + hotDischarges) * 0.06f
+        val cycleWearPenalty = (totalEquivalentCycles * 0.04f).coerceAtMost(15f)
         val totalWearPenalty = cycleWearPenalty + thermalWearPenalty
 
         val baselineCapacity = designCapacity * (1.0 - (totalWearPenalty / 100.0).coerceIn(0.0, 0.35))
 
-        val finalEstimatedCapacity = if (totalWeight > 0.0) {
-            val empiricalCapacity = weightedCapacitySum / totalWeight
-            val confidence = (totalSessionsCount / 8.0).coerceIn(0.5, 0.95)
-            (empiricalCapacity * confidence) + (baselineCapacity * (1.0 - confidence))
+        val currentEmpiricalCapacity = if (totalWeight > 0.0) {
+            val empirical = weightedCapacitySum / totalWeight
+            val confidence = (totalDeltaAnalyzed / 250.0).coerceIn(0.6, 0.95)
+            (empirical * confidence) + (baselineCapacity * (1.0 - confidence))
         } else {
             baselineCapacity
         }
 
-        val rawHealthRatio = (finalEstimatedCapacity / designCapacity.toDouble()) * 100.0
-        val healthPercent = rawHealthRatio.roundToInt().coerceIn(45, 100)
+        // 3. Stabilization: Exponential moving average filter & dampening against fluctuations
+        val prevSmoothed = prefs.getFloat(KEY_SMOOTHED_CAPACITY, 0f).toDouble()
+        val stabilizedCapacity = if (prevSmoothed in (designCapacity * 0.45)..(designCapacity * 1.15)) {
+            // Apply heavy 85% momentum to prevent jumping between 92 -> 94 -> 93
+            val alpha = 0.15
+            var smoothed = (prevSmoothed * (1.0 - alpha)) + (currentEmpiricalCapacity * alpha)
+
+            // Limit single recalculation variance to at most ±0.75% of design capacity
+            val maxDelta = designCapacity * 0.0075
+            if (smoothed > prevSmoothed + maxDelta) smoothed = prevSmoothed + maxDelta
+            if (smoothed < prevSmoothed - maxDelta) smoothed = prevSmoothed - maxDelta
+
+            smoothed
+        } else {
+            currentEmpiricalCapacity
+        }
+
+        // Save smoothed capacity to persistent preferences
+        prefs.edit().putFloat(KEY_SMOOTHED_CAPACITY, stabilizedCapacity.toFloat()).apply()
+
+        // 4. Calculate health percentage and CEIL the value (e.g. 92.1% -> 93%)
+        val rawHealthRatio = (stabilizedCapacity / designCapacity.toDouble()) * 100.0
+        val healthPercent = ceil(rawHealthRatio).toInt().coerceIn(45, 100)
         val roundedEstimatedCapacity = (designCapacity * (healthPercent / 100.0)).roundToInt()
 
         val condition = when {
@@ -204,7 +236,7 @@ object BatteryHealthCalculator {
             conditionLabel = condition,
             totalCyclesCount = (totalEquivalentCycles * 10f).roundToInt() / 10f,
             totalSessionsAnalyzed = totalSessionsCount,
-            minSessionsRequired = 2,
+            minSessionsRequired = 1,
             avgOperatingTempCelsius = avgTemp,
             isCalibrated = true,
             progressPercent = 100

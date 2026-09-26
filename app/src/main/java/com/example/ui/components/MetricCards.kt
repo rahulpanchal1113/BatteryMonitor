@@ -136,7 +136,7 @@ fun BatteryMetricGrid(
                 "$estCap / $designCap mAh"
             } else {
                 val progress = healthInfo?.progressPercent ?: 0
-                if (progress > 0) "Collecting data ($progress%)" else "Need 1–2 charge cycles"
+                if (progress > 0) "Collecting data ($progress%)" else "Need 1 full cycle (100%)"
             }
 
             val healthColor = if (isCalibrated && healthPercent != null) {
@@ -456,8 +456,8 @@ fun BatteryMetricGrid(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Valid Cycles Recorded", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$sessionsAnalyzed / $minRequired cycles", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text("Cycle Data Analyzed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$progress% / 100% equivalent cycle", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                                 Row(
@@ -472,7 +472,7 @@ fun BatteryMetricGrid(
 
                         // Helpful Instructions
                         Text(
-                            text = "To measure your battery's true degraded health accurately relative to its original factory capacity, Battery Monitor analyzes live energy intake and discharge flow.\n\nCharge your device (e.g. from <20% to >80%) and use it normally on battery. Your absolute health percentage and usable mAh capacity will appear here automatically once 1–2 cycles are recorded.",
+                            text = "To measure your battery's true degraded health accurately relative to its original factory capacity, Battery Monitor analyzes live charging energy intake and on-battery discharge telemetry.\n\nData is recorded continuously as you use and charge your device. Once at least 1 full equivalent cycle (cumulative 100% level change, e.g. 50% charge + 50% discharge) is recorded, your stabilized absolute health percentage and usable mAh capacity will appear here automatically.",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

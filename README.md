@@ -13,8 +13,10 @@ A modern, privacy-focused Android application for comprehensive battery health d
 - **Empirical Absolute Battery Health (%)**:
   - Replaces vague status strings ("Good") with true **health percentage (%)** and **usable capacity (e.g., 2950 / 3591 mAh)** relative to original factory specifications.
   - Calculated dynamically using your phone's real charging energy intake and on-battery discharge telemetry.
-  - **Learning & Calibration State**: Upon first install or before sufficient data is recorded, gracefully displays a `Calibrating...` status and progress indicator until 1–2 charge/discharge cycles are tracked.
-  - **Comprehensive Diagnostics Dialog**: One-tap dialog detailing current usable capacity, factory rated capacity (when new), capacity degradation (-mAh and % loss), equivalent cycle count, and average operating temperature.
+  - **Learning & Calibration State**: Requires at least 1 full equivalent cycle (cumulative 100% level change across valid charging & discharging sessions, e.g. 50% charge + 50% discharge) before graduating from calibration, displaying a live progress bar (`Collecting data (X%)`).
+  - **Dampened Smoothing & Anti-Fluctuation Filter**: Uses an exponential moving average filter with high momentum to eliminate erratic jumping between individual sessions.
+  - **Safe Error Margin Ceiling**: Applies `ceil()` rounding to calculated health (e.g., `92.1%` becomes `93%`) to ensure a safe, predictable user measurement margin.
+  - **Comprehensive Diagnostics Dialog**: One-tap dialog detailing current usable capacity, factory rated capacity (when new), capacity degradation (-mAh and % loss), cycle progress percentage, and average operating temperature.
 - **Proactive Notification Permission Management**:
   - Prompts for `POST_NOTIFICATIONS` runtime permission on initial app launch (Android 13+).
   - If permissions are declined or disabled, displays an informative explanation card directly in the Monitor tab detailing why notifications are essential (background telemetry, critical >45°C overheating protection, and charge-completion alerts) with a one-tap button to enable permissions.
