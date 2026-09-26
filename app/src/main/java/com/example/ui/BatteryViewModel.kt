@@ -10,6 +10,7 @@ import com.example.data.local.ChargingSessionEntity
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.AppBackgroundBatteryUsage
 import com.example.data.model.AppDischargeConsumption
+import com.example.data.model.BatteryHealthInfo
 import com.example.data.model.BatteryStatus
 import com.example.data.model.ChargingInsightSummary
 import com.example.data.model.ConnectionDiagnosticIssue
@@ -48,6 +49,7 @@ class BatteryViewModel(
     val todayKey: String = dateFormat.format(Date())
 
     val liveStatus: StateFlow<BatteryStatus> = repository.liveBatteryStatus
+    val batteryHealthInfo: StateFlow<BatteryHealthInfo> = repository.batteryHealthInfo
 
     val allSessions: StateFlow<List<ChargingSessionEntity>> = repository.displaySessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

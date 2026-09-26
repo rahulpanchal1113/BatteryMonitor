@@ -49,17 +49,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.data.model.BatteryHealthInfo
 import com.example.data.model.BatteryStatus
 import java.util.Locale
 
 @Composable
 fun BatteryMetricGrid(
     status: BatteryStatus,
+    healthInfo: BatteryHealthInfo? = null,
     useFahrenheit: Boolean,
     onToggleTempUnit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showPowerBreakdown by remember { mutableStateOf(false) }
+    var showHealthDetailDialog by remember { mutableStateOf(false) }
 
     val tempDisplay = if (useFahrenheit) {
         String.format(Locale.US, "%.1f°F", status.tempFahrenheit)
@@ -109,12 +112,23 @@ fun BatteryMetricGrid(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            val healthPercent = healthInfo?.healthPercentage ?: status.healthPercentage
+            val designCap = healthInfo?.designCapacityMah ?: status.designCapacityMah
+            val estCap = healthInfo?.estimatedCapacityMah ?: status.estimatedCapacityMah
+
+            val healthColor = when {
+                healthPercent >= 90 -> Color(0xFF22C55E)
+                healthPercent >= 80 -> Color(0xFFF59E0B)
+                else -> Color(0xFFEF4444)
+            }
+
             MetricCard(
                 title = stringResource(R.string.metric_health),
-                value = status.health,
-                subtitle = status.technology.ifEmpty { "Condition: Good" },
+                value = "$healthPercent%",
+                subtitle = "$estCap / $designCap mAh",
                 icon = Icons.Default.HealthAndSafety,
-                iconColor = Color(0xFF22C55E),
+                iconColor = healthColor,
+                onClick = { showHealthDetailDialog = true },
                 modifier = Modifier
                     .weight(1f)
                     .testTag("metric_health_card")
@@ -287,6 +301,154 @@ fun BatteryMetricGrid(
             },
             confirmButton = {
                 TextButton(onClick = { showPowerBreakdown = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    if (showHealthDetailDialog) {
+        val healthPercent = healthInfo?.healthPercentage ?: status.healthPercentage
+        val designCap = healthInfo?.designCapacityMah ?: status.designCapacityMah
+        val estCap = healthInfo?.estimatedCapacityMah ?: status.estimatedCapacityMah
+        val condition = healthInfo?.conditionLabel ?: if (healthPercent >= 90) "Excellent" else "Good"
+        val cycles = healthInfo?.totalCyclesCount ?: 0f
+        val sessionsAnalyzed = healthInfo?.totalSessionsAnalyzed ?: 0
+        val avgTempCelsius = healthInfo?.avgOperatingTempCelsius ?: status.tempCelsius
+        val avgTempStr = if (useFahrenheit) {
+            String.format(Locale.US, "%.1f°F", (avgTempCelsius * 9f / 5f) + 32f)
+        } else {
+            String.format(Locale.US, "%.1f°C", avgTempCelsius)
+        }
+
+        val healthColor = when {
+            healthPercent >= 90 -> Color(0xFF22C55E)
+            healthPercent >= 80 -> Color(0xFFF59E0B)
+            else -> Color(0xFFEF4444)
+        }
+
+        AlertDialog(
+            onDismissRequest = { showHealthDetailDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.HealthAndSafety,
+                        contentDescription = null,
+                        tint = healthColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Battery Health Diagnostics", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Large Banner
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(healthColor.copy(alpha = 0.12f))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Absolute Health",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "$healthPercent%",
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = healthColor
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(healthColor)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = condition,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Key Specs Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Current Usable Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$estCap mAh", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Factory Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$designCap mAh (When New)", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Capacity Degradation", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val lostMah = kotlin.math.max(0, designCap - estCap)
+                                Text("-$lostMah mAh (${100 - healthPercent}%)", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = if (lostMah > 300) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Total Equivalent Cycles", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(String.format(Locale.US, "%.1f cycles", cycles), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Avg Operating Temp", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(avgTempStr, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+
+                    // Explanation Note
+                    Text(
+                        text = "Calculated continuously from your device's actual charging energy intake and on-battery discharge cycles relative to original factory specifications.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHealthDetailDialog = false }) {
                     Text("Close")
                 }
             }

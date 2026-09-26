@@ -17,7 +17,7 @@
 
     <string name="metric_temperature">Temperature</string>
     <string name="metric_voltage">Voltage</string>
-    <string name="metric_health">Health</string>
+    <string name="metric_health">Battery Health</string>
     <string name="metric_technology">Technology</string>
     <string name="metric_power_source">Power Source</string>
     <string name="metric_charging_speed">Speed</string>

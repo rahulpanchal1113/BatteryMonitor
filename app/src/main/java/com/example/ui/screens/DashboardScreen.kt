@@ -61,6 +61,7 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val liveStatus by viewModel.liveStatus.collectAsStateWithLifecycle()
+    val batteryHealthInfo by viewModel.batteryHealthInfo.collectAsStateWithLifecycle()
     val allSessions by viewModel.allSessions.collectAsStateWithLifecycle()
     val useFahrenheit by viewModel.useFahrenheit.collectAsStateWithLifecycle()
     val activeDiagnosticIssue by viewModel.activeDiagnosticIssue.collectAsStateWithLifecycle()
@@ -249,6 +250,7 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(8.dp))
             BatteryMetricGrid(
                 status = liveStatus,
+                healthInfo = batteryHealthInfo,
                 useFahrenheit = useFahrenheit,
                 onToggleTempUnit = { viewModel.toggleTempUnit() }
             )

@@ -11,12 +11,14 @@ import com.example.data.local.DischargingSessionEntity
 import com.example.data.diagnostics.ConnectionStabilityAnalyzer
 import com.example.data.model.AppBackgroundBatteryUsage
 import com.example.data.model.AppDischargeConsumption
+import com.example.data.model.BatteryHealthInfo
 import com.example.data.model.BatteryStatus
 import com.example.data.model.ChargingInsightSummary
 import com.example.data.model.ConnectionDiagnosticIssue
 import com.example.data.model.DailyBatteryStats
 import com.example.data.model.DailyDischargeStats
 import com.example.data.util.AppUsageTracker
+import com.example.data.util.BatteryHealthCalculator
 import com.example.data.util.InsightsCalculator
 import com.example.sensor.DeviceSteadinessDetector
 import com.example.widget.BatteryWidgetProvider
@@ -24,11 +26,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -98,7 +102,29 @@ class BatteryRepository(
     val allDischargeSessions: Flow<List<DischargingSessionEntity>> = dao.getAllDischargeSessions()
     val dischargeAvailableDates: Flow<List<String>> = dao.getDischargeAvailableDates()
 
+    val batteryHealthInfo: StateFlow<BatteryHealthInfo> = combine(
+        dao.getAllSessions(),
+        dao.getAllDischargeSessions()
+    ) { chargeSessions, dischargeSessions ->
+        BatteryHealthCalculator.calculateHealth(context, chargeSessions, dischargeSessions)
+    }.stateIn(
+        coroutineScope,
+        SharingStarted.Eagerly,
+        BatteryHealthCalculator.calculateHealth(context, emptyList(), emptyList())
+    )
+
     init {
+        // Collect health updates to keep liveBatteryStatus in sync
+        coroutineScope.launch {
+            batteryHealthInfo.collect { healthInfo ->
+                _liveBatteryStatus.value = _liveBatteryStatus.value.copy(
+                    healthPercentage = healthInfo.healthPercentage,
+                    designCapacityMah = healthInfo.designCapacityMah,
+                    estimatedCapacityMah = healthInfo.estimatedCapacityMah
+                )
+            }
+        }
+
         // Clean up legacy sessions and guarantee no stale active sessions exist
         coroutineScope.launch {
             try {
@@ -411,6 +437,15 @@ class BatteryRepository(
             Pair(0f, "Discharging")
         }
 
+        val healthInfo = try {
+            batteryHealthInfo.value
+        } catch (_: Exception) {
+            null
+        }
+        val healthPercent = healthInfo?.healthPercentage ?: 100
+        val designCap = healthInfo?.designCapacityMah ?: BatteryHealthCalculator.getDesignCapacityMah(context)
+        val estimatedCap = healthInfo?.estimatedCapacityMah ?: designCap
+
         return BatteryStatus(
             level = level,
             isCharging = isCharging,
@@ -424,6 +459,9 @@ class BatteryRepository(
             activeDeviceDrawWatts = activeDeviceDrawWatts,
             chargingSpeedType = speedType,
             health = health,
+            healthPercentage = healthPercent,
+            designCapacityMah = designCap,
+            estimatedCapacityMah = estimatedCap,
             technology = tech,
             timestamp = System.currentTimeMillis()
         )
