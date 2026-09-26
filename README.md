@@ -9,7 +9,12 @@ A modern, privacy-focused Android application for comprehensive battery health d
 ## ✨ Features
 
 ### 1. 📊 Real-Time Monitor (Dashboard)
-- **Live Battery Status**: Instant readout of battery percentage, charging status (AC, USB, Wireless, Discharging on Battery), cell voltage, temperature, battery health, and battery technology.
+- **Live Battery Status**: Instant readout of battery percentage, charging status (AC, USB, Wireless, Discharging on Battery), cell voltage, temperature, technology, and connection speed.
+- **Empirical Absolute Battery Health (%)**:
+  - Replaces vague status strings ("Good") with true **health percentage (%)** and **usable capacity (e.g., 2950 / 3591 mAh)** relative to original factory specifications.
+  - Calculated dynamically using your phone's real charging energy intake and on-battery discharge telemetry.
+  - **Learning & Calibration State**: Upon first install or before sufficient data is recorded, gracefully displays a `Calibrating...` status and progress indicator until 1–2 charge/discharge cycles are tracked.
+  - **Comprehensive Diagnostics Dialog**: One-tap dialog detailing current usable capacity, factory rated capacity (when new), capacity degradation (-mAh and % loss), equivalent cycle count, and average operating temperature.
 - **Live Charging Power Flow**: Visual breakdown of total wall charger power supplied vs. net battery intake power and active device draw (in Watts and mA).
 - **Power Consumption & Standby**: Accurate discharge rate and standby draw tracking when running unplugged on battery power.
 - **Hardware Fault & Cable Diagnostics**: Real-time detection of unstable connections, intermittent contacts, and faulty cables or adapters.

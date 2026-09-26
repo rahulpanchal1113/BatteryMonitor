@@ -442,9 +442,9 @@ class BatteryRepository(
         } catch (_: Exception) {
             null
         }
-        val healthPercent = healthInfo?.healthPercentage ?: 100
+        val healthPercent = healthInfo?.healthPercentage
         val designCap = healthInfo?.designCapacityMah ?: BatteryHealthCalculator.getDesignCapacityMah(context)
-        val estimatedCap = healthInfo?.estimatedCapacityMah ?: designCap
+        val estimatedCap = healthInfo?.estimatedCapacityMah
 
         return BatteryStatus(
             level = level,
