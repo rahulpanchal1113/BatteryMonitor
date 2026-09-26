@@ -126,166 +126,143 @@ object AppUsageTracker {
         val tempDelta = max(1.5f, safePeak - safeAvg)
 
         val hasPerm = hasUsageStatsPermission(context)
+        if (!hasPerm) {
+            return@withContext emptyList()
+        }
+
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: return@withContext emptyList()
 
-        if (hasPerm && usageStatsManager != null) {
-            try {
-                // Precise interval tracking with lookback
-                val preciseTimes = queryUsageEventsInWindow(
-                    usageStatsManager = usageStatsManager,
-                    startTime = safeStartTime,
-                    endTime = effectiveEndTime,
-                    maxSessionDuration = sessionDurationMillis
-                )
+        try {
+            // Precise interval tracking with lookback
+            val preciseTimes = queryUsageEventsInWindow(
+                usageStatsManager = usageStatsManager,
+                startTime = safeStartTime,
+                endTime = effectiveEndTime,
+                maxSessionDuration = sessionDurationMillis
+            )
 
-                val aggregatedMap: Map<String, Long> = if (preciseTimes.isNotEmpty()) {
-                    preciseTimes
+            val aggregatedMap: Map<String, Long> = if (preciseTimes.isNotEmpty()) {
+                preciseTimes
+            } else {
+                // Fallback to queryUsageStats scaled to this session duration
+                val statsList: List<UsageStats> = usageStatsManager.queryUsageStats(
+                    UsageStatsManager.INTERVAL_BEST,
+                    safeStartTime,
+                    effectiveEndTime
+                ) ?: emptyList()
+
+                val validDailyStats = statsList.filter { it.totalTimeInForeground > 1000L }
+                val totalDailyFg = validDailyStats.sumOf { it.totalTimeInForeground }
+
+                if (validDailyStats.isNotEmpty() && totalDailyFg > 0L) {
+                    validDailyStats.associate { stats ->
+                        val appShare = stats.totalTimeInForeground.toDouble() / totalDailyFg.toDouble()
+                        val estimatedSessionFg = (sessionDurationMillis * appShare).toLong().coerceIn(0L, sessionDurationMillis)
+                        stats.packageName to estimatedSessionFg
+                    }
                 } else {
-                    // Fallback to queryUsageStats scaled to this session duration
-                    val statsList: List<UsageStats> = usageStatsManager.queryUsageStats(
-                        UsageStatsManager.INTERVAL_BEST,
-                        safeStartTime,
-                        effectiveEndTime
-                    ) ?: emptyList()
-
-                    val validDailyStats = statsList.filter { it.totalTimeInForeground > 1000L }
-                    val totalDailyFg = validDailyStats.sumOf { it.totalTimeInForeground }
-
-                    if (validDailyStats.isNotEmpty() && totalDailyFg > 0L) {
-                        validDailyStats.associate { stats ->
-                            val appShare = stats.totalTimeInForeground.toDouble() / totalDailyFg.toDouble()
-                            val estimatedSessionFg = (sessionDurationMillis * appShare).toLong().coerceIn(0L, sessionDurationMillis)
-                            stats.packageName to estimatedSessionFg
-                        }
-                    } else {
-                        emptyMap()
-                    }
+                    emptyMap()
                 }
+            }
 
-                val validAggregated = aggregatedMap.filter { it.value > 500L }
-                    .toList()
-                    .sortedByDescending { it.second }
+            val validAggregated = aggregatedMap.filter { it.value > 500L }
+                .toList()
+                .sortedByDescending { it.second }
 
-                if (validAggregated.isNotEmpty()) {
-                    val rawAppUsages = mutableListOf<RawAppUsage>()
+            if (validAggregated.isNotEmpty()) {
+                val rawAppUsages = mutableListOf<RawAppUsage>()
 
-                    for ((pkg, rawFgMillis) in validAggregated) {
-                        val appLabel = getAppLabel(pm, pkg)
-                        val fgMillis = rawFgMillis.coerceIn(0L, sessionDurationMillis)
-                        val remainingTime = max(0L, sessionDurationMillis - fgMillis)
+                for ((pkg, rawFgMillis) in validAggregated) {
+                    val appLabel = getAppLabel(pm, pkg)
+                    val fgMillis = rawFgMillis.coerceIn(0L, sessionDurationMillis)
+                    val remainingTime = max(0L, sessionDurationMillis - fgMillis)
 
-                        val isMediaOrCamera = pkg.contains("camera") || pkg.contains("youtube") || pkg.contains("game")
-                        val isAudio = pkg.contains("spotify") || pkg.contains("music") || pkg.contains("podcast")
+                    val isMediaOrCamera = pkg.contains("camera") || pkg.contains("youtube") || pkg.contains("game")
+                    val isAudio = pkg.contains("spotify") || pkg.contains("music") || pkg.contains("podcast")
 
-                        val bgMillis = when {
-                            isAudio -> remainingTime.coerceAtLeast((fgMillis * 2L)).coerceIn(0L, sessionDurationMillis)
-                            isMediaOrCamera -> (fgMillis * 0.05f).toLong().coerceIn(0L, remainingTime)
-                            else -> (remainingTime * 0.15f).toLong().coerceIn(0L, remainingTime)
-                        }
-
-                        val (fgRate, bgRate) = getAppDrainRatePerHour(pkg, appLabel)
-                        val fgHours = fgMillis / 3600000.0
-                        val bgHours = bgMillis / 3600000.0
-
-                        val fgPower = fgHours * fgRate
-                        val bgPower = bgHours * bgRate
-                        val totalPower = fgPower + bgPower
-
-                        if (totalPower > 0.0) {
-                            rawAppUsages.add(
-                                RawAppUsage(
-                                    packageName = pkg,
-                                    appName = appLabel,
-                                    foregroundMillis = fgMillis,
-                                    backgroundMillis = bgMillis,
-                                    foregroundPower = fgPower,
-                                    backgroundPower = bgPower,
-                                    totalPower = totalPower
-                                )
-                            )
-                        }
+                    val bgMillis = when {
+                        isAudio -> remainingTime.coerceAtLeast((fgMillis * 2L)).coerceIn(0L, sessionDurationMillis)
+                        isMediaOrCamera -> (fgMillis * 0.05f).toLong().coerceIn(0L, remainingTime)
+                        else -> (remainingTime * 0.15f).toLong().coerceIn(0L, remainingTime)
                     }
 
-                    // Always account for a modest system standby baseline power during the session
-                    val sessionHours = sessionDurationMillis / 3600000.0
-                    val systemBaselinePower = sessionHours * 2.2
-                    if (!rawAppUsages.any { it.packageName.contains("systemui") || it.packageName.contains("android") }) {
+                    val (fgRate, bgRate) = getAppDrainRatePerHour(pkg, appLabel)
+                    val fgHours = fgMillis / 3600000.0
+                    val bgHours = bgMillis / 3600000.0
+
+                    val fgPower = fgHours * fgRate
+                    val bgPower = bgHours * bgRate
+                    val totalPower = fgPower + bgPower
+
+                    if (totalPower > 0.0) {
                         rawAppUsages.add(
                             RawAppUsage(
-                                packageName = "com.android.systemui",
-                                appName = "Android System",
-                                foregroundMillis = (sessionDurationMillis * 0.05).toLong(),
-                                backgroundMillis = sessionDurationMillis,
-                                foregroundPower = (sessionDurationMillis * 0.05 / 3600000.0) * 4.5,
-                                backgroundPower = sessionHours * 1.5,
-                                totalPower = systemBaselinePower
+                                packageName = pkg,
+                                appName = appLabel,
+                                foregroundMillis = fgMillis,
+                                backgroundMillis = bgMillis,
+                                foregroundPower = fgPower,
+                                backgroundPower = bgPower,
+                                totalPower = totalPower
                             )
                         )
                     }
+                }
 
-                    val totalDischargePower = rawAppUsages.sumOf { it.totalPower }
+                val totalDischargePower = rawAppUsages.sumOf { it.totalPower }
 
-                    if (totalDischargePower > 0.0) {
-                        val sortedApps = rawAppUsages.sortedByDescending { it.totalPower }.take(10)
-                        val cycleDrop = max(0, startLevel - endLevel).toDouble()
+                if (totalDischargePower > 0.0) {
+                    val sortedApps = rawAppUsages.sortedByDescending { it.totalPower }.take(10)
+                    val cycleDrop = max(0, startLevel - endLevel).toDouble()
 
-                        val topList = sortedApps.mapIndexed { index, app ->
-                            val stakeRatio = if (totalDischargePower > 0.0) app.totalPower / totalDischargePower else 0.0
+                    val topList = sortedApps.mapIndexed { index, app ->
+                        val stakeRatio = if (totalDischargePower > 0.0) app.totalPower / totalDischargePower else 0.0
 
-                            // Absolute battery percentage consumed by this app during this discharge cycle
-                            val drainedFromCycle = cycleDrop * stakeRatio
-                            val physicalDrain = app.totalPower
+                        // Absolute battery percentage consumed by this app during this discharge cycle
+                        val drainedFromCycle = cycleDrop * stakeRatio
+                        val physicalDrain = app.totalPower
 
-                            val appAbsoluteDrain = if (cycleDrop >= 1.0) {
-                                max(drainedFromCycle, physicalDrain)
-                            } else {
-                                physicalDrain
-                            }
-                            val finalAbsolutePercent = max(0.1f, (appAbsoluteDrain * 10.0).roundToInt() / 10.0f)
-
-                            // Foreground vs. Background dissection of this app's usage (SUMS TO EXACTLY 100%)
-                            val fgFraction = if (app.totalPower > 0.0) app.foregroundPower / app.totalPower else 0.95
-                            val rawFgPercent = (fgFraction * 100.0).roundToInt().toFloat()
-                            val finalFgPercent = rawFgPercent.coerceIn(1.0f, 99.0f)
-                            val finalBgPercent = 100.0f - finalFgPercent
-
-                            val rankFactor = 1.0f - (index * 0.08f).coerceIn(0f, 0.65f)
-                            val appPeak = ((safeAvg + (tempDelta * rankFactor)) * 10f).roundToInt() / 10f
-                            val appAvg = ((safeAvg + (tempDelta * 0.45f * rankFactor)) * 10f).roundToInt() / 10f
-
-                            AppDischargeConsumption(
-                                packageName = app.packageName,
-                                appName = app.appName,
-                                totalPercentConsumed = finalAbsolutePercent,
-                                foregroundPercent = finalFgPercent,
-                                backgroundPercent = finalBgPercent,
-                                foregroundTimeMillis = app.foregroundMillis,
-                                backgroundTimeMillis = app.backgroundMillis,
-                                rank = index + 1,
-                                peakTempCelsius = appPeak,
-                                avgTempCelsius = appAvg
-                            )
+                        val appAbsoluteDrain = if (cycleDrop >= 1.0) {
+                            max(drainedFromCycle, physicalDrain)
+                        } else {
+                            physicalDrain
                         }
+                        val finalAbsolutePercent = max(0.1f, (appAbsoluteDrain * 10.0).roundToInt() / 10.0f)
 
-                        if (topList.isNotEmpty()) {
-                            return@withContext topList
-                        }
+                        // Foreground vs. Background dissection of this app's usage (SUMS TO EXACTLY 100%)
+                        val fgFraction = if (app.totalPower > 0.0) app.foregroundPower / app.totalPower else 0.95
+                        val rawFgPercent = (fgFraction * 100.0).roundToInt().toFloat()
+                        val finalFgPercent = rawFgPercent.coerceIn(1.0f, 99.0f)
+                        val finalBgPercent = 100.0f - finalFgPercent
+
+                        val rankFactor = 1.0f - (index * 0.08f).coerceIn(0f, 0.65f)
+                        val appPeak = ((safeAvg + (tempDelta * rankFactor)) * 10f).roundToInt() / 10f
+                        val appAvg = ((safeAvg + (tempDelta * 0.45f * rankFactor)) * 10f).roundToInt() / 10f
+
+                        AppDischargeConsumption(
+                            packageName = app.packageName,
+                            appName = app.appName,
+                            totalPercentConsumed = finalAbsolutePercent,
+                            foregroundPercent = finalFgPercent,
+                            backgroundPercent = finalBgPercent,
+                            foregroundTimeMillis = app.foregroundMillis,
+                            backgroundTimeMillis = app.backgroundMillis,
+                            rank = index + 1,
+                            peakTempCelsius = appPeak,
+                            avgTempCelsius = appAvg
+                        )
+                    }
+
+                    if (topList.isNotEmpty()) {
+                        return@withContext topList
                     }
                 }
-            } catch (_: Exception) {
-                // Fall through to installed apps calculation
             }
+        } catch (_: Exception) {
         }
 
-        // Graceful fallback using real installed packages on device with realistic battery modeling
-        generateProportionalInstalledAppUsage(
-            context = context,
-            percentDrained = percentDrained,
-            sessionDurationMillis = sessionDurationMillis,
-            safePeak = safePeak,
-            safeAvg = safeAvg,
-            tempDelta = tempDelta
-        )
+        emptyList()
     }
 
     /**

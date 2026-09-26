@@ -3,8 +3,10 @@ package com.example.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +49,6 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.DailyDischargeStats
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
@@ -60,6 +63,7 @@ fun DailyDischargeTimeline(
 ) {
     val dischargeColor = Color(0xFF0284C7)
     val cyanColor = Color(0xFF38BDF8)
+    val sortedSessions = remember(sessions) { sessions.sortedBy { it.startTime } }
 
     Card(
         modifier = modifier
@@ -96,7 +100,7 @@ fun DailyDischargeTimeline(
                 }
 
                 Text(
-                    text = "${sessions.size} period${if (sessions.size == 1) "" else "s"}",
+                    text = "${sortedSessions.size} period${if (sortedSessions.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = dischargeColor
                 )
@@ -104,7 +108,7 @@ fun DailyDischargeTimeline(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            if (sessions.isEmpty()) {
+            if (sortedSessions.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -118,216 +122,274 @@ fun DailyDischargeTimeline(
                     )
                 }
             } else {
-                // 24-Hour Level & Battery Discharge Decrease Curve Canvas
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                ) {
-                    val w = size.width
-                    val h = size.height
-                    val leftPadding = 32.dp.toPx()
-                    val rightPadding = 12.dp.toPx()
-                    val topPadding = 14.dp.toPx()
-                    val bottomPadding = 22.dp.toPx()
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val availableWidthDp = maxWidth
+                    val yAxisWidthDp = 34.dp
+                    val count = sortedSessions.size
 
-                    val chartWidth = w - leftPadding - rightPadding
-                    val chartHeight = h - topPadding - bottomPadding
-
-                    val labelPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.GRAY
-                        textSize = 9.sp.toPx()
-                        isAntiAlias = true
-                        textAlign = android.graphics.Paint.Align.RIGHT
+                    // Provide generous slot width per session so curves and badges NEVER superimpose
+                    val slotWidthDp = if (count <= 2) {
+                        (availableWidthDp - yAxisWidthDp - 8.dp) / count
+                    } else {
+                        140.dp
                     }
 
-                    val badgeTextPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 8.5.sp.toPx()
-                        isAntiAlias = true
-                        isFakeBoldText = true
-                        textAlign = android.graphics.Paint.Align.CENTER
+                    val totalCanvasWidthDp = if (count <= 2) {
+                        availableWidthDp
+                    } else {
+                        yAxisWidthDp + (slotWidthDp * count) + 16.dp
                     }
 
-                    // Level Grid lines (0%, 25%, 50%, 75%, 100%)
-                    val gridSteps = 4
-                    for (i in 0..gridSteps) {
-                        val frac = i.toFloat() / gridSteps
-                        val y = topPadding + (chartHeight * frac)
-                        val levelVal = (100 - (100 * frac)).toInt()
+                    val scrollState = rememberScrollState()
 
-                        drawLine(
-                            color = Color.Gray.copy(alpha = 0.12f),
-                            start = Offset(leftPadding, y),
-                            end = Offset(w - rightPadding, y),
-                            strokeWidth = 1.dp.toPx()
-                        )
-
-                        drawContext.canvas.nativeCanvas.drawText(
-                            "$levelVal%",
-                            leftPadding - 6.dp.toPx(),
-                            y + 3.5.dp.toPx(),
-                            labelPaint
-                        )
-                    }
-
-                    // Time Vertical Guide lines (6h intervals)
-                    val timeSteps = 4
-                    for (i in 1 until timeSteps) {
-                        val frac = i.toFloat() / timeSteps
-                        val x = leftPadding + (chartWidth * frac)
-                        drawLine(
-                            color = Color.Gray.copy(alpha = 0.08f),
-                            start = Offset(x, topPadding),
-                            end = Offset(x, topPadding + chartHeight),
-                            strokeWidth = 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
-                        )
-                    }
-
-                    fun getXForSeconds(secOfDay: Float): Float {
-                        val frac = (secOfDay / 86400f).coerceIn(0f, 1f)
-                        return leftPadding + (chartWidth * frac)
-                    }
-
-                    fun getYForLevel(level: Float): Float {
-                        val frac = (level / 100f).coerceIn(0f, 1f)
-                        return topPadding + (chartHeight * (1f - frac))
-                    }
-
-                    // Draw each discharge session as a downward sloping curve & fill
-                    sessions.forEach { session ->
-                        val startCal = Calendar.getInstance().apply { timeInMillis = session.startTime }
-                        val startSec = (startCal.get(Calendar.HOUR_OF_DAY) * 3600 + startCal.get(Calendar.MINUTE) * 60 + startCal.get(Calendar.SECOND)).toFloat()
-
-                        val durSec = max(300L, session.durationSeconds).toFloat()
-                        val endSec = min(86400f, startSec + durSec)
-
-                        val startLevel = session.startLevel.toFloat()
-                        val safeEndLevel = session.endLevel.toFloat()
-                        val deltaDrain = max(0, (startLevel - safeEndLevel).toInt())
-
-                        val startX = getXForSeconds(startSec)
-                        val endX = max(startX + 14.dp.toPx(), getXForSeconds(endSec))
-
-                        val startY = getYForLevel(startLevel)
-                        val endY = getYForLevel(safeEndLevel)
-
-                        // Smooth downward curve from start to end
-                        val cX1 = startX + (endX - startX) * 0.4f
-                        val cY1 = startY + (endY - startY) * 0.3f
-                        val cX2 = startX + (endX - startX) * 0.8f
-                        val cY2 = endY
-
-                        val fillPath = Path().apply {
-                            moveTo(startX, topPadding + chartHeight)
-                            lineTo(startX, startY)
-                            cubicTo(cX1, cY1, cX2, cY2, endX, endY)
-                            lineTo(endX, topPadding + chartHeight)
-                            close()
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (count > 2) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "👉 Scroll timeline horizontally",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
 
-                        // Gradient fill under the downward discharge slope
-                        drawPath(
-                            path = fillPath,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    dischargeColor.copy(alpha = 0.32f),
-                                    cyanColor.copy(alpha = 0.04f)
-                                ),
-                                startY = min(startY, endY),
-                                endY = topPadding + chartHeight
-                            )
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (count > 2) Modifier.horizontalScroll(scrollState)
+                                    else Modifier
+                                )
+                        ) {
+                            Canvas(
+                                modifier = Modifier
+                                    .width(totalCanvasWidthDp)
+                                    .height(160.dp)
+                            ) {
+                                val w = size.width
+                                val h = size.height
+                                val leftPadding = yAxisWidthDp.toPx()
+                                val rightPadding = 16.dp.toPx()
+                                val topPadding = 24.dp.toPx()
+                                val bottomPadding = 30.dp.toPx()
 
-                        // Downward Stroke Curve
-                        val strokePath = Path().apply {
-                            moveTo(startX, startY)
-                            cubicTo(cX1, cY1, cX2, cY2, endX, endY)
+                                val chartWidth = w - leftPadding - rightPadding
+                                val chartHeight = h - topPadding - bottomPadding
+                                val slotWidthPx = (chartWidth / count)
+
+                                val labelPaint = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.GRAY
+                                    textSize = 9.sp.toPx()
+                                    isAntiAlias = true
+                                    textAlign = android.graphics.Paint.Align.RIGHT
+                                }
+
+                                val timePaint = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.GRAY
+                                    textSize = 8.5.sp.toPx()
+                                    isAntiAlias = true
+                                    textAlign = android.graphics.Paint.Align.CENTER
+                                }
+
+                                val badgeTextPaint = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.WHITE
+                                    textSize = 8.5.sp.toPx()
+                                    isAntiAlias = true
+                                    isFakeBoldText = true
+                                    textAlign = android.graphics.Paint.Align.CENTER
+                                }
+
+                                val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+
+                                // 1. Level Grid lines (0%, 25%, 50%, 75%, 100%)
+                                val gridSteps = 4
+                                for (i in 0..gridSteps) {
+                                    val frac = i.toFloat() / gridSteps
+                                    val y = topPadding + (chartHeight * frac)
+                                    val levelVal = (100 - (100 * frac)).toInt()
+
+                                    drawLine(
+                                        color = Color.Gray.copy(alpha = 0.15f),
+                                        start = Offset(leftPadding, y),
+                                        end = Offset(w - rightPadding, y),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        "$levelVal%",
+                                        leftPadding - 5.dp.toPx(),
+                                        y + 3.5.dp.toPx(),
+                                        labelPaint
+                                    )
+                                }
+
+                                fun getYForLevel(level: Float): Float {
+                                    val frac = (level / 100f).coerceIn(0f, 1f)
+                                    return topPadding + (chartHeight * (1f - frac))
+                                }
+
+                                // 2. Draw each discharge session in its isolated non-overlapping lane
+                                sortedSessions.forEachIndexed { index, session ->
+                                    val laneLeft = leftPadding + (index * slotWidthPx)
+                                    val laneRight = laneLeft + slotWidthPx
+
+                                    val startX = laneLeft + 14.dp.toPx()
+                                    val endX = laneRight - 14.dp.toPx()
+
+                                    val startLevel = session.startLevel.toFloat()
+                                    val safeEndLevel = session.endLevel.toFloat()
+                                    val deltaDrain = max(0, (startLevel - safeEndLevel).toInt())
+
+                                    val startY = getYForLevel(startLevel)
+                                    val endY = getYForLevel(safeEndLevel)
+
+                                    // Smooth downward Bezier curve
+                                    val cX1 = startX + (endX - startX) * 0.4f
+                                    val cY1 = startY + (endY - startY) * 0.3f
+                                    val cX2 = startX + (endX - startX) * 0.8f
+                                    val cY2 = endY
+
+                                    val fillPath = Path().apply {
+                                        moveTo(startX, topPadding + chartHeight)
+                                        lineTo(startX, startY)
+                                        cubicTo(cX1, cY1, cX2, cY2, endX, endY)
+                                        lineTo(endX, topPadding + chartHeight)
+                                        close()
+                                    }
+
+                                    // Gradient fill under the downward slope
+                                    drawPath(
+                                        path = fillPath,
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                dischargeColor.copy(alpha = 0.35f),
+                                                cyanColor.copy(alpha = 0.03f)
+                                            ),
+                                            startY = min(startY, endY),
+                                            endY = topPadding + chartHeight
+                                        )
+                                    )
+
+                                    // Downward Stroke
+                                    val strokePath = Path().apply {
+                                        moveTo(startX, startY)
+                                        cubicTo(cX1, cY1, cX2, cY2, endX, endY)
+                                    }
+
+                                    drawPath(
+                                        path = strokePath,
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(dischargeColor, cyanColor),
+                                            startX = startX,
+                                            endX = endX
+                                        ),
+                                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                    )
+
+                                    // Start Node
+                                    drawCircle(
+                                        color = dischargeColor.copy(alpha = 0.45f),
+                                        radius = 5.5.dp.toPx(),
+                                        center = Offset(startX, startY)
+                                    )
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 3.dp.toPx(),
+                                        center = Offset(startX, startY)
+                                    )
+                                    drawCircle(
+                                        color = dischargeColor,
+                                        radius = 2.dp.toPx(),
+                                        center = Offset(startX, startY)
+                                    )
+
+                                    // End Node
+                                    drawCircle(
+                                        color = cyanColor.copy(alpha = 0.35f),
+                                        radius = 4.5.dp.toPx(),
+                                        center = Offset(endX, endY)
+                                    )
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 2.5.dp.toPx(),
+                                        center = Offset(endX, endY)
+                                    )
+
+                                    // Connecting bridge line to next session
+                                    if (index < count - 1) {
+                                        val nextSession = sortedSessions[index + 1]
+                                        val nextLaneLeft = leftPadding + ((index + 1) * slotWidthPx)
+                                        val nextStartX = nextLaneLeft + 14.dp.toPx()
+                                        val nextStartY = getYForLevel(nextSession.startLevel.toFloat())
+
+                                        drawLine(
+                                            color = Color.Gray.copy(alpha = 0.28f),
+                                            start = Offset(endX, endY),
+                                            end = Offset(nextStartX, nextStartY),
+                                            strokeWidth = 1.2.dp.toPx(),
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
+                                        )
+                                    }
+
+                                    // Draw Drain Badge (-X%) positioned cleanly above this session
+                                    val badgeW = 32.dp.toPx()
+                                    val badgeH = 15.dp.toPx()
+                                    val midX = (startX + endX) / 2f
+                                    val badgeX = (midX - badgeW / 2f).coerceIn(laneLeft + 2.dp.toPx(), laneRight - badgeW - 2.dp.toPx())
+                                    val badgeY = (min(startY, endY) - badgeH - 6.dp.toPx()).coerceAtLeast(2.dp.toPx())
+
+                                    drawRoundRect(
+                                        color = Color(0xFF0369A1),
+                                        topLeft = Offset(badgeX, badgeY),
+                                        size = Size(badgeW, badgeH),
+                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                                    )
+
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        "-$deltaDrain%",
+                                        badgeX + badgeW / 2f,
+                                        badgeY + badgeH - 4.dp.toPx(),
+                                        badgeTextPaint
+                                    )
+
+                                    // Time labels below this specific session
+                                    val startFormatted = timeFormat.format(Date(session.startTime))
+                                    val endFormatted = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Now"
+                                    val durationMins = max(1L, session.durationSeconds / 60)
+
+                                    val labelY = h - 6.dp.toPx()
+                                    val durationText = "${startLevel.toInt()}%→${safeEndLevel.toInt()}% ($durationMins m)"
+                                    val timeRangeText = "$startFormatted – $endFormatted"
+
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        durationText,
+                                        midX,
+                                        labelY - 10.dp.toPx(),
+                                        timePaint
+                                    )
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        timeRangeText,
+                                        midX,
+                                        labelY,
+                                        timePaint
+                                    )
+                                }
+                            }
                         }
-
-                        drawPath(
-                            path = strokePath,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(dischargeColor, cyanColor),
-                                startX = startX,
-                                endX = endX
-                            ),
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                        )
-
-                        // Start node
-                        drawCircle(
-                            color = dischargeColor.copy(alpha = 0.4f),
-                            radius = 5.5.dp.toPx(),
-                            center = Offset(startX, startY)
-                        )
-                        drawCircle(
-                            color = Color.White,
-                            radius = 3.dp.toPx(),
-                            center = Offset(startX, startY)
-                        )
-                        drawCircle(
-                            color = dischargeColor,
-                            radius = 2.dp.toPx(),
-                            center = Offset(startX, startY)
-                        )
-
-                        // End node
-                        drawCircle(
-                            color = cyanColor.copy(alpha = 0.35f),
-                            radius = 4.dp.toPx(),
-                            center = Offset(endX, endY)
-                        )
-                        drawCircle(
-                            color = Color.White,
-                            radius = 2.5.dp.toPx(),
-                            center = Offset(endX, endY)
-                        )
-
-                        // Draw Decrease Badge "-X%" above the session
-                        val badgeW = 28.dp.toPx()
-                        val badgeH = 14.dp.toPx()
-                        val midX = (startX + endX) / 2f
-                        val badgeX = (midX - badgeW / 2f).coerceIn(leftPadding, w - rightPadding - badgeW)
-                        val badgeY = max(2.dp.toPx(), min(startY, endY) - badgeH - 4.dp.toPx())
-
-                        drawRoundRect(
-                            color = Color(0xFF0369A1),
-                            topLeft = Offset(badgeX, badgeY),
-                            size = Size(badgeW, badgeH),
-                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-                        )
-
-                        drawContext.canvas.nativeCanvas.drawText(
-                            "-$deltaDrain%",
-                            badgeX + badgeW / 2f,
-                            badgeY + badgeH - 3.5.dp.toPx(),
-                            badgeTextPaint
-                        )
                     }
-
-                    // Bottom 24-hour time labels
-                    val timeLabelPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.GRAY
-                        textSize = 9.sp.toPx()
-                        isAntiAlias = true
-                        textAlign = android.graphics.Paint.Align.CENTER
-                    }
-
-                    val timeY = h - 4.dp.toPx()
-                    drawContext.canvas.nativeCanvas.drawText("00:00", leftPadding + 6.dp.toPx(), timeY, timeLabelPaint)
-                    drawContext.canvas.nativeCanvas.drawText("06:00", leftPadding + (chartWidth * 0.25f), timeY, timeLabelPaint)
-                    drawContext.canvas.nativeCanvas.drawText("12:00", leftPadding + (chartWidth * 0.5f), timeY, timeLabelPaint)
-                    drawContext.canvas.nativeCanvas.drawText("18:00", leftPadding + (chartWidth * 0.75f), timeY, timeLabelPaint)
-                    drawContext.canvas.nativeCanvas.drawText("24:00", w - rightPadding - 6.dp.toPx(), timeY, timeLabelPaint)
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Detailed discharging sessions list
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    sessions.forEach { session ->
+                    sortedSessions.forEach { session ->
                         DischargeSessionItemRow(
                             session = session,
                             onClick = onSessionClick?.let { { it(session) } }

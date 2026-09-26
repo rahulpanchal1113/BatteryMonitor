@@ -1,9 +1,13 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.sync.GoogleDriveBackupManager
@@ -50,6 +55,14 @@ enum class BatteryNavTab(val labelRes: Int, val icon: ImageVector, val tag: Stri
 class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: BatteryViewModel
+
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (::viewModel.isInitialized) {
+            viewModel.refreshLiveStatus()
+        }
+    }
 
     private val powerStateReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -80,6 +93,13 @@ class MainActivity : ComponentActivity() {
         val backupManager = GoogleDriveBackupManager(app.database.batteryDao(), this)
         val factory = BatteryViewModel.Factory(app.repository, backupManager)
         viewModel = ViewModelProvider(this, factory)[BatteryViewModel::class.java]
+
+        // Ask for notification permission when the app first launches on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         val filter = android.content.IntentFilter().apply {
             addAction(android.content.Intent.ACTION_POWER_CONNECTED)

@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.LockClock
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,10 +40,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,12 +56,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.BatteryEventEntity
 import com.example.data.local.DischargingSessionEntity
 import com.example.data.model.AppDischargeConsumption
 import com.example.data.util.AppUsageTracker
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -72,17 +81,44 @@ fun DischargingSessionDetailSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val events by eventsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var topApps by remember { mutableStateOf<List<AppDischargeConsumption>>(emptyList()) }
     var isLoadingApps by remember { mutableStateOf(true) }
-    val hasUsagePerm = remember { AppUsageTracker.hasUsageStatsPermission(context) }
+    var hasUsagePerm by remember { mutableStateOf(AppUsageTracker.hasUsageStatsPermission(context)) }
+
+    fun refreshApps() {
+        coroutineScope.launch {
+            val perm = AppUsageTracker.hasUsageStatsPermission(context)
+            hasUsagePerm = perm
+            if (perm) {
+                isLoadingApps = true
+                topApps = onFetchTopApps(session)
+                isLoadingApps = false
+            } else {
+                topApps = emptyList()
+                isLoadingApps = false
+            }
+        }
+    }
 
     LaunchedEffect(session.id) {
-        isLoadingApps = true
-        topApps = onFetchTopApps(session)
-        isLoadingApps = false
+        refreshApps()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshApps()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val safeEndLevel = session.endLevel
@@ -500,88 +536,106 @@ fun DischargingSessionDetailSheet(
                     }
 
                     if (!hasUsagePerm) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
-                                .padding(10.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                                .padding(16.dp)
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Info,
-                                        contentDescription = null,
+                                        imageVector = Icons.Default.Security,
+                                        contentDescription = "Security Permission",
                                         tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Usage access enables exact per-app CPU minutes",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
-                                FilledTonalButton(
+
+                                Text(
+                                    text = "Usage Access Permission Required",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                Text(
+                                    text = "To track which applications consumed battery and CPU energy during this discharge cycle, Android requires Usage Access permission.\n\nAll data is processed 100% locally on your device.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 16.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Button(
                                     onClick = {
                                         try {
                                             context.startActivity(AppUsageTracker.getUsageAccessSettingsIntent())
                                         } catch (_: Exception) {}
                                     },
-                                    contentPadding = ButtonDefaults.TextButtonContentPadding,
-                                    modifier = Modifier.height(30.dp)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("grant_usage_access_button")
                                 ) {
-                                    Text("Settings", fontSize = 11.sp)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Grant Usage Access in Settings", fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (isLoadingApps) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(80.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Analyzing app consumption...",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else if (topApps.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(60.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No heavy app consumption recorded during this session",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            topApps.forEach { appItem ->
-                                AppConsumptionRow(
-                                    appItem = appItem,
-                                    useFahrenheit = useFahrenheit
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (isLoadingApps) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(80.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Analyzing app consumption...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        } else if (topApps.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No heavy app consumption recorded during this session",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                topApps.forEach { appItem ->
+                                    AppConsumptionRow(
+                                        appItem = appItem,
+                                        useFahrenheit = useFahrenheit
+                                    )
+                                }
                             }
                         }
                     }

@@ -15,6 +15,9 @@ A modern, privacy-focused Android application for comprehensive battery health d
   - Calculated dynamically using your phone's real charging energy intake and on-battery discharge telemetry.
   - **Learning & Calibration State**: Upon first install or before sufficient data is recorded, gracefully displays a `Calibrating...` status and progress indicator until 1–2 charge/discharge cycles are tracked.
   - **Comprehensive Diagnostics Dialog**: One-tap dialog detailing current usable capacity, factory rated capacity (when new), capacity degradation (-mAh and % loss), equivalent cycle count, and average operating temperature.
+- **Proactive Notification Permission Management**:
+  - Prompts for `POST_NOTIFICATIONS` runtime permission on initial app launch (Android 13+).
+  - If permissions are declined or disabled, displays an informative explanation card directly in the Monitor tab detailing why notifications are essential (background telemetry, critical >45°C overheating protection, and charge-completion alerts) with a one-tap button to enable permissions.
 - **Live Charging Power Flow**: Visual breakdown of total wall charger power supplied vs. net battery intake power and active device draw (in Watts and mA).
 - **Power Consumption & Standby**: Accurate discharge rate and standby draw tracking when running unplugged on battery power.
 - **Hardware Fault & Cable Diagnostics**: Real-time detection of unstable connections, intermittent contacts, and faulty cables or adapters.
@@ -22,7 +25,9 @@ A modern, privacy-focused Android application for comprehensive battery health d
 
 ### 2. 📉 Discharging Cycle Analytics & Per-App Breakdown
 - **Discharge Event Tracking**: Automatically tracks on-battery discharge cycles with start/end levels, total percentage drained, duration on battery, and discharge velocity (%/hour).
-- **Top Battery Consuming Apps**:
+- **Top Battery Consuming Apps & Clear Permission Flow**:
+  - When Android **Usage Access** permission is not granted, no apps are shown or estimated; instead, a dedicated permission card explains why the permission is needed and provides a direct button to grant it in system settings.
+  - Once granted, automatically re-analyzes and presents exact foreground and background app drain for the selected cycle.
   - **Absolute Battery Drain**: Displays the estimated absolute battery percentage consumed by each app during that specific discharge cycle.
   - **Foreground vs. Background Dissection (100% Sum)**: Breaks down each app's active energy footprint into foreground vs. background proportions that always sum to 100%, visualized with a two-tone progress indicator.
   - **Accurate Active Runtime**: Precise duration tracking formatted with seconds for short bursts (e.g., `45s`, `1m 23s`) and hours/minutes for longer use (e.g., `1h 7m`).
@@ -41,9 +46,11 @@ A modern, privacy-focused Android application for comprehensive battery health d
 
 ### 4. 🗓️ Daily History & Timeline Curves
 - **Date-Filtered Timeline**: Review all past charging events and completed discharge cycles categorized by day.
-- **Charging & Discharging Timeline Curves**:
-  - **Charge Increase Curve**: Visualizes 24-hour battery charge progression with emerald gradient ramps, battery level Y-axis (0–100%), and `+X%` increase peak badges for each charging session.
-  - **Discharge Decrease Curve**: Visualizes 24-hour battery consumption with sky blue gradient descents and `-X%` decrease badges for each discharge cycle.
+- **Anti-Collision Timeline Curves (Charging & Discharging)**:
+  - **Isolated Chronological Event Lanes**: Resolves cramped 24-hour phone widths by allocating dedicated, anti-collision horizontal slots for each event, connected by smooth dashed state bridges. Small adjacent events (like +5% and +4% charge, or -3% and -7% drain) never superimpose or overlap.
+  - **Horizontal Panning**: Seamless horizontal scrolling support when more than 2 events occur in a single day, ensuring every badge, curve, timestamp, and level transition has spacious breathing room.
+  - **Charge Increase Curve**: Visualizes battery charge progression with emerald gradient ramps, level Y-axis (0–100%), and centered `+X%` badges.
+  - **Discharge Decrease Curve**: Visualizes battery consumption with sky blue gradient descents, level Y-axis (0–100%), and centered `-X%` badges.
 - **Detailed Session Bottom Sheet**: Deep dive into any historical charge or discharge event with start/end levels, net percentage change, duration, average/peak temperatures, wattage, and speed.
 - **Smart Unplugged Event Reconstruction**: Reconstructs the exact start of a discharge cycle using the system's latest `UNPLUGGED` event if the app was closed when disconnected from the charger.
 - **Data Integrity & Monotonic Verification**: Guarantees consistent records and eliminates negative end-level artifacts.
