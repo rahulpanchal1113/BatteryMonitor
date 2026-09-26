@@ -39,8 +39,11 @@ A modern, privacy-focused Android application for comprehensive battery health d
 - **Thermal Progression Curve**: Continuous temperature tracking throughout charging stages, excluding unrecorded ranges for clean, accurate trends.
 - **Thermal Safety & Charging Throttle Protection**: Monitored peak temperatures and 3-stage charging speed impact cards (`<36°C Cool 100% Speed`, `38–44°C Hot ~55% Speed`, and `≥45°C Overheat ~20% Speed`).
 
-### 4. 🗓️ Daily History & Session Details
+### 4. 🗓️ Daily History & Timeline Curves
 - **Date-Filtered Timeline**: Review all past charging events and completed discharge cycles categorized by day.
+- **Charging & Discharging Timeline Curves**:
+  - **Charge Increase Curve**: Visualizes 24-hour battery charge progression with emerald gradient ramps, battery level Y-axis (0–100%), and `+X%` increase peak badges for each charging session.
+  - **Discharge Decrease Curve**: Visualizes 24-hour battery consumption with sky blue gradient descents and `-X%` decrease badges for each discharge cycle.
 - **Detailed Session Bottom Sheet**: Deep dive into any historical charge or discharge event with start/end levels, net percentage change, duration, average/peak temperatures, wattage, and speed.
 - **Smart Unplugged Event Reconstruction**: Reconstructs the exact start of a discharge cycle using the system's latest `UNPLUGGED` event if the app was closed when disconnected from the charger.
 - **Data Integrity & Monotonic Verification**: Guarantees consistent records and eliminates negative end-level artifacts.

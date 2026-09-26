@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.BatteryEventEntity
@@ -50,6 +51,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 data class DischargeChartDataPoint(
     val timestamp: Long,
@@ -418,14 +420,28 @@ fun DischargeMetricsChart(
                         )
                     }
 
-                    // Draw Node points
-                    battOffsets.forEach { offset ->
+                    // Select a small number of strategic highlighted points (at most 5-6 points)
+                    val highlightedIndices = if (points.size <= 5) {
+                        points.indices.toList()
+                    } else {
+                        val count = 5
+                        val step = (points.size - 1).toFloat() / (count - 1)
+                        val indices = (0 until count).map { (it * step).roundToInt().coerceIn(0, points.size - 1) }.toMutableSet()
+                        val peakIdx = points.indices.maxByOrNull { points[it].tempCelsius }
+                        if (peakIdx != null) indices.add(peakIdx)
+                        indices.sorted()
+                    }
+
+                    // Draw Node points for strategic key milestones only
+                    highlightedIndices.forEach { index ->
+                        val offset = battOffsets[index]
                         drawCircle(color = batteryDrainColor.copy(alpha = 0.25f), radius = 5.5.dp.toPx(), center = offset)
                         drawCircle(color = Color.White, radius = 3.dp.toPx(), center = offset)
                         drawCircle(color = batteryDrainColor, radius = 2.dp.toPx(), center = offset)
                     }
 
-                    tempOffsets.forEachIndexed { index, offset ->
+                    highlightedIndices.forEach { index ->
+                        val offset = tempOffsets[index]
                         val isOverheatNode = points.getOrNull(index)?.tempCelsius?.let { it >= 42.0f } ?: false
                         val nodeColor = if (isOverheatNode) Color(0xFFDC2626) else tempColor
                         drawCircle(color = nodeColor.copy(alpha = 0.35f), radius = 5.dp.toPx(), center = offset)
@@ -497,7 +513,7 @@ fun DischargeMetricsChart(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // 3-Stage thermal drain breakdown bar (equal height cards)
+                    // 3-Stage thermal drain breakdown bar (equal height cards with clean alignment matching charging section)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -518,9 +534,19 @@ fun DischargeMetricsChart(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Text("<35°C Cool", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFF15803D))
+                                Text(
+                                    text = "<35°C Cool",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF15803D),
+                                    textAlign = TextAlign.Center
+                                )
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text("1.0x Normal Drain", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF16A34A))
+                                Text(
+                                    text = "1.0x Drain",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = Color(0xFF16A34A),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
 
@@ -538,9 +564,19 @@ fun DischargeMetricsChart(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Text("36–42°C Warm", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB45309))
+                                Text(
+                                    text = "36–42°C Warm",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFB45309),
+                                    textAlign = TextAlign.Center
+                                )
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text("~1.25x Elevated", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFD97706))
+                                Text(
+                                    text = "~1.3x Drain",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = Color(0xFFD97706),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
 
@@ -558,9 +594,19 @@ fun DischargeMetricsChart(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Text("≥43°C High Heat", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFB91C1C))
+                                Text(
+                                    text = "≥43°C High Heat",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFB91C1C),
+                                    textAlign = TextAlign.Center
+                                )
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text("~1.5x Accelerated", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFDC2626))
+                                Text(
+                                    text = "~1.5x Drain",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = Color(0xFFDC2626),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
