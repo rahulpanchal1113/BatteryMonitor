@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,6 +64,7 @@ fun BatteryMetricGrid(
     healthInfo: BatteryHealthInfo? = null,
     useFahrenheit: Boolean,
     onToggleTempUnit: () -> Unit,
+    onRecalibrate: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showPowerBreakdown by remember { mutableStateOf(false) }
@@ -542,6 +545,14 @@ fun BatteryMetricGrid(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
+                                    Text("Next Monthly Recalibration", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("In ${healthInfo?.nextRecalibrationDaysRemaining ?: 30} days", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFF0284C7))
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Text("Avg Operating Temp", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(avgTempStr, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                 }
@@ -550,10 +561,31 @@ fun BatteryMetricGrid(
 
                         // Explanation Note
                         Text(
-                            text = "Calculated from your charging and discharging telemetry relative to your battery's rated capacity.",
+                            text = "Battery fully recalibrates after every 1 month. Once recalibrated, the calculation incorporates 15% new data from subsequent sessions.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        if (onRecalibrate != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    onRecalibrate.invoke()
+                                    showHealthDetailDialog = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("recalibrate_battery_button"),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Recalibrate Battery Now", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             },

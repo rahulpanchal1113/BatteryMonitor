@@ -10,5 +10,8 @@ data class BatteryHealthInfo(
     val minSessionsRequired: Int = 2,
     val avgOperatingTempCelsius: Float = 31f,
     val isCalibrated: Boolean = false,
-    val progressPercent: Int = 0
+    val progressPercent: Int = 0,
+    val nextRecalibrationDaysRemaining: Int = 30,
+    val isMonthlyRecalibrating: Boolean = false,
+    val lastCalibratedDate: String = ""
 )

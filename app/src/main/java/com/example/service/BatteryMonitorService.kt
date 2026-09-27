@@ -75,17 +75,21 @@ class BatteryMonitorService : Service() {
             registerReceiver(batteryReceiver, filter)
         }
 
-        // Periodic checkpoint every 30 seconds while charging to ensure consistent curve data
+        // Periodic checkpoint every 30 seconds to perform midnight rollover and track live telemetry
         serviceScope.launch {
             while (isActive) {
                 delay(30_000L)
                 val app = applicationContext as? BatteryApplication ?: continue
-                val status = app.repository.queryCurrentBatteryStatus()
-                if (status.isCharging) {
-                    app.repository.logBatterySample()
+                try {
+                    // Automatically rollover sessions at midnight (ends old session at 12:00 AM, starts new one)
+                    app.repository.checkAndRolloverSessionsAtMidnight()
+                    val status = app.repository.queryCurrentBatteryStatus()
+                    if (status.isCharging) {
+                        app.repository.logBatterySample()
+                    }
                     updateNotification()
                     BatteryWidgetProvider.updateAllWidgets(applicationContext)
-                }
+                } catch (_: Exception) {}
             }
         }
     }

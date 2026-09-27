@@ -389,7 +389,8 @@ fun DashboardScreen(
                 status = liveStatus,
                 healthInfo = batteryHealthInfo,
                 useFahrenheit = useFahrenheit,
-                onToggleTempUnit = { viewModel.toggleTempUnit() }
+                onToggleTempUnit = { viewModel.toggleTempUnit() },
+                onRecalibrate = { viewModel.triggerRecalibrateBattery() }
             )
         }
 

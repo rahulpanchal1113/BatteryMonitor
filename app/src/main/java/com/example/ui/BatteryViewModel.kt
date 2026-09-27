@@ -271,6 +271,10 @@ class BatteryViewModel(
         }
     }
 
+    fun triggerRecalibrateBattery() {
+        repository.triggerRecalibrateBattery()
+    }
+
     class Factory(
         private val repository: BatteryRepository,
         private val backupManager: GoogleDriveBackupManager

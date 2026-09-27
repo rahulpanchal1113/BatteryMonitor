@@ -648,7 +648,7 @@ fun AppBackgroundBatteryImpactCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Two-column clean stats: % consumed today & Average of last 7 days per day
+            // Two-column clean stats: Background & Foreground exact app usage stats
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -669,7 +669,7 @@ fun AppBackgroundBatteryImpactCard(
                     ) {
                         Column {
                             Text(
-                                text = "% CONSUMED TODAY",
+                                text = "BACKGROUND DRAIN",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 9.sp
@@ -686,11 +686,99 @@ fun AppBackgroundBatteryImpactCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (usage.backgroundDurationMillis > 0L) {
-                                "Active ~${DurationFormatter.formatMillisDuration(usage.backgroundDurationMillis)}"
+                                DurationFormatter.formatMillisDuration(usage.backgroundDurationMillis)
                             } else {
-                                "Used by app today"
+                                "Minimal passive"
                             },
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "FOREGROUND DRAIN",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = String.format(Locale.US, "%.2f%%", usage.foregroundBatteryUsedPercent),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (usage.foregroundDurationMillis > 0L) {
+                                DurationFormatter.formatMillisDuration(usage.foregroundDurationMillis)
+                            } else {
+                                "< 1 min"
+                            },
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Second row: Total App Battery Usage & 7-Day Average
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "TOTAL APP USAGE",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = String.format(Locale.US, "%.2f%%", usage.totalAppBatteryUsedPercent),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Foreground + Background",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -721,13 +809,13 @@ fun AppBackgroundBatteryImpactCard(
                             Text(
                                 text = String.format(Locale.US, "%.2f%%", usage.averageLast7DaysPercent),
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
+                                color = Color(0xFF0284C7)
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Daily 7-day average",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                            text = "Daily background average",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
