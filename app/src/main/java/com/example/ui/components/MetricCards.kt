@@ -139,7 +139,8 @@ fun BatteryMetricGrid(
                 "$estCap / $designCap mAh"
             } else {
                 val progress = healthInfo?.progressPercent ?: 0
-                if (progress > 0) "Collecting data ($progress%)" else "Need 1 full cycle (100%)"
+                val daysLeft = healthInfo?.calibrationDaysRemaining ?: 4
+                if (progress > 0) "Calibration $progress% • ~$daysLeft ${if (daysLeft == 1) "day" else "days"} left" else "Ready in 3 to 5 days"
             }
 
             val healthColor = if (isCalibrated && healthPercent != null) {
@@ -383,6 +384,7 @@ fun BatteryMetricGrid(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!isCalibrated || healthPercent == null) {
+                        val daysLeft = healthInfo?.calibrationDaysRemaining ?: 4
                         // Calibrating Progress Banner
                         Box(
                             modifier = Modifier
@@ -399,13 +401,13 @@ fun BatteryMetricGrid(
                                 ) {
                                     Column {
                                         Text(
-                                            text = "Calibration Status",
+                                            text = "Calibration Progress",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
-                                            text = "Collecting Data ($progress%)",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            text = "$progress%",
+                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                             color = Color(0xFF0284C7)
                                         )
                                     }
@@ -432,6 +434,17 @@ fun BatteryMetricGrid(
                                     color = Color(0xFF0284C7),
                                     trackColor = Color(0xFF0284C7).copy(alpha = 0.2f)
                                 )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        text = "~$daysLeft ${if (daysLeft == 1) "day" else "days"} left",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF0284C7)
+                                    )
+                                }
                             }
                         }
 
@@ -451,7 +464,7 @@ fun BatteryMetricGrid(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Factory Rated Capacity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("$designCap mAh", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -465,11 +478,12 @@ fun BatteryMetricGrid(
                             }
                         }
 
-                        // Helpful Instructions (Naive explanation)
+                        // Helpful Instructions
                         Text(
-                            text = "You need to wait 1–2 days of regular charging and discharging for the app to collect enough telemetry and calculate your battery health data.",
+                            text = "Battery health will be ready in 3 to 5 days.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 18.sp
                         )
                     } else {
                         // Calibrated State: Large Banner
@@ -503,7 +517,7 @@ fun BatteryMetricGrid(
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(healthColor)
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
+                                    ) {
                                     Text(
                                         text = condition,
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -561,7 +575,7 @@ fun BatteryMetricGrid(
 
                         // Explanation Note
                         Text(
-                            text = "Battery fully recalibrates after every 1 month. Once recalibrated, the calculation incorporates 15% new data from subsequent sessions.",
+                            text = "Battery health is stabilized against daily fluctuations and computed exclusively from deep charging sessions. A full recalibration occurs automatically every month (~30 days).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

@@ -429,7 +429,7 @@ fun DashboardScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No charging events recorded yet. Connect your adapter to record a charge cycle!",
+                            text = "No charging events recorded yet. Connect your adapter to record a charging session!",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

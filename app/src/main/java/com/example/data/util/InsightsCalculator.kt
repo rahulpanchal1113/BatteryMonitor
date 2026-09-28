@@ -176,7 +176,7 @@ object InsightsCalculator {
         val coolSamples = allRateSamples.filter { it.tempCelsius < 35.0f }
 
         val thermalNote = if (!hasEnoughData) {
-            "Collecting battery data… Insights, fastest charging zone, and thermal characteristics will automatically show up after a few charging cycles."
+            "Collecting battery data… Insights, fastest charging zone, and thermal characteristics will automatically show up after ~3 to 5 days of normal charging."
         } else if (sessions.any { it.maxTemp >= 45.0f }) {
             "CRITICAL OVERHEAT (>45°C) DETECTED: Hardware thermal protection severely throttles charging speed (by up to 75%) to protect the battery cell from damage."
         } else if (hotSamples.size >= 2 && coolSamples.size >= 2) {

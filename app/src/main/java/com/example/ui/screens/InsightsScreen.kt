@@ -139,7 +139,7 @@ fun InsightsScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Plug in your charger to start recording. In a few charge cycles, you'll see exact minutes needed for each stage (0-60% vs 80-100%) and thermal insights.",
+                            text = "Plug in your charger to start recording. Over ~3 to 5 days of normal charging, you'll see exact minutes needed for each stage (0-60% vs 80-100%) and thermal insights.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,

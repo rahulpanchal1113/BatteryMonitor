@@ -118,13 +118,14 @@ class BatteryRepository(
 
     val batteryHealthInfo: StateFlow<BatteryHealthInfo> = combine(
         dao.getAllSessions(),
-        dao.getAllDischargeSessions()
-    ) { chargeSessions, dischargeSessions ->
-        BatteryHealthCalculator.calculateHealth(context, chargeSessions, dischargeSessions)
+        dao.getAllDischargeSessions(),
+        _liveBatteryStatus
+    ) { chargeSessions, dischargeSessions, liveStatus ->
+        BatteryHealthCalculator.calculateHealth(context, chargeSessions, dischargeSessions, liveStatus)
     }.stateIn(
         coroutineScope,
         SharingStarted.Eagerly,
-        BatteryHealthCalculator.calculateHealth(context, emptyList(), emptyList())
+        BatteryHealthCalculator.calculateHealth(context, emptyList(), emptyList(), null)
     )
 
     init {
