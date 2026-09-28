@@ -64,6 +64,10 @@ class BatteryMonitorService : Service() {
         super.onCreate()
         startInForeground()
 
+        val initialStatus = (applicationContext as? BatteryApplication)?.repository?.queryCurrentBatteryStatus()
+        wasCharging = initialStatus?.isCharging
+        lastRecordedLevel = initialStatus?.level ?: -1
+
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)

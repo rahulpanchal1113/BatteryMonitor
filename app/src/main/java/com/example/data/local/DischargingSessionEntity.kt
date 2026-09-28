@@ -29,6 +29,7 @@ data class DischargingSessionEntity(
 ) {
     val isDisplayable: Boolean
         get() {
+            if (endLevel > startLevel) return false
             if (!isCompleted) return true
             val percentDrained = kotlin.math.max(0, startLevel - endLevel)
             return durationSeconds >= 60L || percentDrained >= 1

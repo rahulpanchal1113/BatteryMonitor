@@ -38,18 +38,7 @@ class BatteryWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_POWER_DISCONNECTED -> {
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 prefs.edit().putBoolean("is_plugged", false).apply()
-                val pendingResult = goAsync()
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val app = context.applicationContext as? com.example.BatteryApplication
-                        app?.repository?.onPowerDisconnected()
-                        updateAllWidgetsDirect(context)
-                    } finally {
-                        try {
-                            pendingResult.finish()
-                        } catch (_: Exception) {}
-                    }
-                }
+                updateAllWidgets(context)
             }
             ACTION_UPDATE_WIDGET,
             ACTION_WIDGET_REFRESH,
@@ -169,14 +158,6 @@ class BatteryWidgetProvider : AppWidgetProvider() {
 
             if (!isCharging) {
                 prefs.edit().putBoolean("is_plugged", false).apply()
-                if (activeSession != null) {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val app = context.applicationContext as? com.example.BatteryApplication
-                            app?.repository?.onPowerDisconnected()
-                        } catch (_: Exception) {}
-                    }
-                }
             }
 
             val plugSource = when (plugged) {

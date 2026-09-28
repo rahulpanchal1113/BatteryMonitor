@@ -97,6 +97,12 @@ interface BatteryDao {
     @Query("SELECT * FROM discharging_sessions ORDER BY startTime DESC LIMIT 1")
     suspend fun getLatestDischargeSession(): DischargingSessionEntity?
 
+    @Query("SELECT * FROM discharging_sessions WHERE endLevel > startLevel")
+    suspend fun getCorruptedInvertedDischargeSessions(): List<DischargingSessionEntity>
+
+    @Query("DELETE FROM discharging_sessions WHERE endLevel > startLevel")
+    suspend fun deleteCorruptedInvertedDischargeSessions()
+
     @Query("DELETE FROM battery_events")
     suspend fun clearEvents()
 

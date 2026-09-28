@@ -111,16 +111,18 @@ class ChargingJobService : JobService() {
 
         serviceScope.launch(NonCancellable) {
             try {
-                app?.repository?.onPowerDisconnected()
-                BatteryWidgetProvider.updateAllWidgets(applicationContext)
+                val currentStatus = app?.repository?.queryCurrentBatteryStatus()
+                if (currentStatus != null && !currentStatus.isCharging) {
+                    app.repository.onPowerDisconnected()
+                    BatteryWidgetProvider.updateAllWidgets(applicationContext)
+                    ChargingAlarmScheduler.cancelCheckpoints(applicationContext)
+                    ChargingAlarmScheduler.scheduleWidgetPeriodicRefresh(applicationContext, 15 * 60_000L)
+                }
             } catch (e: CancellationException) {
                 // Normal cancellation
             } catch (e: Exception) {
                 Log.e("ChargingJobService", "Error during onStopJob", e)
             } finally {
-                ChargingAlarmScheduler.cancelCheckpoints(applicationContext)
-                ChargingAlarmScheduler.scheduleWidgetPeriodicRefresh(applicationContext, 15 * 60_000L)
-
                 try {
                     if (wakeLock?.isHeld == true) {
                         wakeLock.release()

@@ -414,7 +414,7 @@ fun DischargeSessionItemRow(
     val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
     val startTimeStr = timeFormat.format(Date(session.startTime))
     val endTimeStr = session.endTime?.let { timeFormat.format(Date(it)) } ?: "Active"
-    val safeEnd = session.endLevel
+    val safeEnd = min(session.startLevel, session.endLevel)
     val deltaPercent = max(0, session.startLevel - safeEnd)
     val isOngoing = !session.isCompleted && session.endTime == null
     val effectiveDuration = if (isOngoing) max(session.durationSeconds, (System.currentTimeMillis() - session.startTime) / 1000L) else session.durationSeconds
